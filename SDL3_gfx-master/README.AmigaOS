@@ -1,0 +1,78 @@
+SDL3_gfx - AmigaOS 68k classical Makefile
+==========================================
+
+This archive adds a traditional Makefile for the m68k-amigaos GCC toolchain.
+It supports separate clib2 and libnix builds and includes all shipped tests.
+
+Common build flags:
+
+    -mcpu=68040 -mhard-float -O3
+
+The following math functions are explicitly protected from GCC builtin
+replacement, matching the usual AmigaOS 68k build setup:
+
+    -fno-builtin-floor
+    -fno-builtin-ceil
+    -fno-builtin-sin
+    -fno-builtin-cos
+    -fno-builtin-log10
+
+No builtin exceptions are added for sqrt, pow, fabs, etc.
+
+Runtime variants
+----------------
+
+Build both clib2 and libnix variants:
+
+    make
+
+Build clib2 only:
+
+    make clib2
+
+This uses -mcrt=clib2 for compilation and executable linking.
+
+Build libnix only:
+
+    make libnix
+
+This uses -noixemul for compilation and executable linking.
+
+Requirements
+------------
+
+* SDL3 headers in the compiler's normal include path
+* libSDL3.a in the compiler's normal library path
+* For TestGfx, TestRotozoom and TestFramerate:
+  SDL3/SDL_test_common.h and libSDL3_test.a
+
+Outputs
+-------
+
+clib2:
+
+    build/clib2/lib/libSDL3_gfx.a
+    build/clib2/bin/TestGfx
+    build/clib2/bin/TestImageFilter
+    build/clib2/bin/TestRotozoom
+    build/clib2/bin/TestFramerate
+
+libnix:
+
+    build/libnix/lib/libSDL3_gfx.a
+    build/libnix/bin/TestGfx
+    build/libnix/bin/TestImageFilter
+    build/libnix/bin/TestRotozoom
+    build/libnix/bin/TestFramerate
+
+The BMP files required by the tests are copied to each bin directory. Run the
+test programs from that directory so their sample images can be found.
+
+If SDL3 is not installed in the default compiler paths, for example:
+
+    make SDL3_CFLAGS="-I/path/to/include" \
+         SDL3_LIBS="-L/path/to/lib -lSDL3" \
+         SDL3_TEST_LIBS="-L/path/to/lib -lSDL3_test"
+
+The shipped TestGfx.c contained duplicate declarations such as "rx, rx" and
+"tx1, tx1". Those obvious source typos have been corrected in this archive.

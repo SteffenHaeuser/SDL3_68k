@@ -1,0 +1,236 @@
+# SDL3_image 3.4.4 - classic AmigaOS3 Makefile
+#
+# Static library build for m68k-amigaos-gcc.
+#
+# Default:
+#   make
+#
+# Explicit runtimes:
+#   make clib2
+#   make libnix
+#
+# Clean:
+#   make clean
+#
+# Install into a staging directory:
+#   make PREFIX=/opt/amiga-6.5.0b/m68k-amigaos install-clib2
+#
+# SDL3 headers are expected to be installed in the compiler include path.
+# Override SDL3_INC if required, for example:
+#   make SDL3_INC=-I../SDL/include
+#
+# The first AmigaOS3 version deliberately uses SDL_image's built-in decoders
+# and stb_image for PNG/JPEG, avoiding external codec libraries.
+
+CC      := m68k-amigaos-gcc
+AR      := m68k-amigaos-ar
+RANLIB  := m68k-amigaos-ranlib
+
+CPUFLAGS := -mcpu=68040 -mhard-float
+OPTFLAGS := -O2
+WARNINGS := -Wall -Wextra
+CSTD     := -std=gnu99
+
+MATH_BUILTIN_FLAGS := \
+	-fno-builtin-floor \
+	-fno-builtin-ceil \
+	-fno-builtin-sin \
+	-fno-builtin-cos \
+	-fno-builtin-log10
+
+SDL3_INC ?=
+CPPFLAGS_COMMON = \
+	-Iinclude \
+	-Isrc \
+	$(SDL3_INC) \
+	-D__AMIGAOS3__ \
+	-DBUILD_SDL \
+	-DSDL_BUILD_MAJOR_VERSION=3 \
+	-DSDL_BUILD_MINOR_VERSION=4 \
+	-DSDL_BUILD_MICRO_VERSION=4 \
+	-DUSE_STBIMAGE \
+	-DLOAD_ANI \
+	-DLOAD_BMP \
+	-DLOAD_GIF \
+	-DLOAD_JPG \
+	-DSAVE_JPG=0 \
+	-DLOAD_LBM \
+	-DLOAD_PCX \
+	-DLOAD_PNG \
+	-DSAVE_PNG=0 \
+	-DLOAD_PNM \
+	-DLOAD_QOI \
+	-DLOAD_SVG \
+	-DLOAD_TGA \
+	-DLOAD_XCF \
+	-DLOAD_XPM \
+	-DLOAD_XV
+
+CFLAGS_COMMON := $(CSTD) $(CPUFLAGS) $(OPTFLAGS) $(WARNINGS) $(MATH_BUILTIN_FLAGS)
+
+CLIB2_CFLAGS := -mcrt=clib2 -DNOIXEMUL
+LIBNIX_CFLAGS := -noixemul
+
+SOURCES = \
+	src/IMG.c \
+	src/IMG_ani.c \
+	src/IMG_anim_encoder.c \
+	src/IMG_anim_decoder.c \
+	src/IMG_avif.c \
+	src/IMG_bmp.c \
+	src/IMG_gif.c \
+	src/IMG_gpu.c \
+	src/IMG_jpg.c \
+	src/IMG_jxl.c \
+	src/IMG_lbm.c \
+	src/IMG_pcx.c \
+	src/IMG_png.c \
+	src/IMG_pnm.c \
+	src/IMG_qoi.c \
+	src/IMG_stb.c \
+	src/IMG_svg.c \
+	src/IMG_tga.c \
+	src/IMG_tif.c \
+	src/IMG_webp.c \
+	src/IMG_xcf.c \
+	src/IMG_xpm.c \
+	src/IMG_xv.c \
+	src/IMG_libpng.c \
+	src/xmlman.c
+
+CLIB2_OBJS = $(SOURCES:src/%.c=build/clib2/%.o)
+LIBNIX_OBJS = $(SOURCES:src/%.c=build/libnix/%.o)
+
+CLIB2_LIB := build/clib2/libSDL3_image.a
+LIBNIX_LIB := build/libnix/libSDL3_image_libnix.a
+
+.PHONY: all clib2 libnix clean install-clib2 install-libnix
+
+all: clib2 libnix
+
+clib2: $(CLIB2_LIB)
+
+libnix: $(LIBNIX_LIB)
+
+build/clib2/%.o: src/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS_COMMON) $(CFLAGS_COMMON) $(CLIB2_CFLAGS) -c $< -o $@
+
+build/libnix/%.o: src/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS_COMMON) $(CFLAGS_COMMON) $(LIBNIX_CFLAGS) -c $< -o $@
+
+$(CLIB2_LIB): $(CLIB2_OBJS)
+	@mkdir -p $(@D)
+	$(AR) rcs $@ $(CLIB2_OBJS)
+	$(RANLIB) $@
+
+$(LIBNIX_LIB): $(LIBNIX_OBJS)
+	@mkdir -p $(@D)
+	$(AR) rcs $@ $(LIBNIX_OBJS)
+	$(RANLIB) $@
+
+PREFIX ?= /opt/amiga-6.5.0b/m68k-amigaos
+INCLUDEDIR ?= $(PREFIX)/include
+LIBDIR ?= $(PREFIX)/lib
+
+install-clib2: $(CLIB2_LIB)
+	mkdir -p $(INCLUDEDIR)/SDL3_image $(LIBDIR)
+	cp include/SDL3_image/SDL_image.h $(INCLUDEDIR)/SDL3_image/
+	cp $(CLIB2_LIB) $(LIBDIR)/libSDL3_image.a
+
+install-libnix: $(LIBNIX_LIB)
+	mkdir -p $(INCLUDEDIR)/SDL3_image $(LIBDIR)
+	cp include/SDL3_image/SDL_image.h $(INCLUDEDIR)/SDL3_image/
+	cp $(LIBNIX_LIB) $(LIBDIR)/libSDL3_image_libnix.a
+
+clean:
+	rm -rf build
+
+
+# ---------------------------------------------------------------------------
+# Upstream SDL3_image tests
+# ---------------------------------------------------------------------------
+
+# SDL3's test framework is a separate static support library.
+# Override if your SDK uses another name/path.
+SDL3_TEST_LIBS_CLIB2 := -lSDL3_test
+SDL3_LIBS_CLIB2      := -lSDL3 -lminigl -ldebug -lamiga -lm -latomic -lstubs
+SDL3_TEST_LIBS_LIBNIX := -lSDL3_test_libnix
+SDL3_LIBS_LIBNIX      := -lSDL3_libnix -lminigl -ldebug -lamiga -lm -latomic -lstubs
+
+CLIB2_TESTIMAGE     = build/clib2/test/testimage
+CLIB2_TESTANIMATION = build/clib2/test/testanimation
+LIBNIX_TESTIMAGE     = build/libnix/test/testimage
+LIBNIX_TESTANIMATION = build/libnix/test/testanimation
+
+TEST_RESOURCES = \
+	test/palette.bmp \
+	test/palette.gif \
+	test/rgbrgb.ani \
+	test/rgbrgb.avifs \
+	test/rgbrgb.gif \
+	test/rgbrgb.png \
+	test/rgbrgb_thirdpartymetadata.webp \
+	test/rgbrgb.webp \
+	test/sample.avif \
+	test/sample.bmp \
+	test/sample.cur \
+	test/sample.ico \
+	test/sample.jpg \
+	test/sample.jxl \
+	test/sample.pcx \
+	test/sample.png \
+	test/sample.pnm \
+	test/sample.qoi \
+	test/sample.tga \
+	test/sample.tif \
+	test/sample.webp \
+	test/sample.xcf \
+	test/sample.xpm \
+	test/svg-class.bmp \
+	test/svg-class.svg \
+	test/svg.bmp \
+	test/svg.svg \
+	test/svg64.bmp
+
+define COPY_TEST_RESOURCES
+	@mkdir -p $(1)
+	@for f in $(TEST_RESOURCES); do cp $$f $(1)/; done
+endef
+
+$(CLIB2_TESTIMAGE): test/testimage.c $(CLIB2_LIB)
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS_COMMON) $(CFLAGS_COMMON) $(CLIB2_CFLAGS) \
+		test/testimage.c $(CLIB2_LIB) $(SDL3_TEST_LIBS_CLIB2) $(SDL3_LIBS_CLIB2) -o $@
+	$(call COPY_TEST_RESOURCES,$(@D))
+
+$(CLIB2_TESTANIMATION): test/testanimation.c $(CLIB2_LIB)
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS_COMMON) $(CFLAGS_COMMON) $(CLIB2_CFLAGS) \
+		test/testanimation.c $(CLIB2_LIB) $(SDL3_TEST_LIBS_CLIB2) $(SDL3_LIBS_CLIB2) -o $@
+	$(call COPY_TEST_RESOURCES,$(@D))
+
+$(LIBNIX_TESTIMAGE): test/testimage.c $(LIBNIX_LIB)
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS_COMMON) $(CFLAGS_COMMON) $(LIBNIX_CFLAGS) \
+		test/testimage.c $(LIBNIX_LIB) $(SDL3_TEST_LIBS_LIBNIX) $(SDL3_LIBS_LIBNIX) -o $@
+	$(call COPY_TEST_RESOURCES,$(@D))
+
+$(LIBNIX_TESTANIMATION): test/testanimation.c $(LIBNIX_LIB)
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS_COMMON) $(CFLAGS_COMMON) $(LIBNIX_CFLAGS) \
+		test/testanimation.c $(LIBNIX_LIB) $(SDL3_TEST_LIBS_LIBNIX) $(SDL3_LIBS_LIBNIX) -o $@
+	$(call COPY_TEST_RESOURCES,$(@D))
+
+tests-clib2: $(CLIB2_TESTIMAGE) $(CLIB2_TESTANIMATION)
+
+tests-libnix: $(LIBNIX_TESTIMAGE) $(LIBNIX_TESTANIMATION)
+
+testimage-clib2: $(CLIB2_TESTIMAGE)
+
+testanimation-clib2: $(CLIB2_TESTANIMATION)
+
+testimage-libnix: $(LIBNIX_TESTIMAGE)
+
+testanimation-libnix: $(LIBNIX_TESTANIMATION)

@@ -1,0 +1,405 @@
+CC=m68k-amigaos-gcc
+AR=m68k-amigaos-ar
+RANLIB=m68k-amigaos-ranlib
+COMMON=-std=gnu99 -O2 -mcpu=68040 -mhard-float -Wall -Wextra -Wno-unused-parameter -I./include -I./include/build_config -I./include/SDL3 -I./src -D__AMIGAOS3__
+CLIB2=$(COMMON) -mcrt=clib2 -DNOIXEMUL
+LIBNIX=$(COMMON) -noixemul -DNOIXEMUL
+SOURCES=$(wildcard ./src/*.c ./src/atomic/*.c ./src/audio/*.c ./src/audio/amigaos3/*.c ./src/camera/*.c ./src/camera/dummy/*.c ./src/cpuinfo/*.c ./src/dialog/*.c ./src/dialog/amigaos3/*.c ./src/events/*.c ./src/gpu/SDL_gpu.c ./src/haptic/*.c ./src/io/*.c ./src/io/generic/SDL_asyncio_generic.c ./src/joystick/*.c ./src/joystick/amigaos3/*.c ./src/libm/*.c ./src/loadso/dummy/*.c ./src/locale/*.c ./src/locale/amigaos3/*.c ./src/main/generic/*.c ./src/main/SDL_main_callbacks.c ./src/main/SDL_runapp.c ./src/misc/*.c ./src/power/*.c ./src/process/*.c ./src/process/dummy/*.c ./src/render/*.c ./src/render/software/*.c ./src/sensor/*.c ./src/sensor/dummy/*.c ./src/stdlib/*.c ./src/storage/SDL_storage.c ./src/storage/generic/SDL_genericstorage.c ./src/thread/*.c ./src/thread/amigaos3/*.c ./src/thread/generic/SDL_syscond.c ./src/thread/generic/SDL_sysrwlock.c ./src/time/SDL_time.c ./src/time/amigaos3/SDL_systime.c ./src/timer/*.c ./src/timer/amigaos3/*.c ./src/tray/SDL_tray_utils.c ./src/tray/dummy/*.c ./src/video/*.c ./src/video/yuv2rgb/yuv_rgb_std.c ./src/video/amigaos3/*.c ./src/video/dummy/*.c ./src/filesystem/SDL_filesystem.c ./src/filesystem/amigaos3/*.c)
+REL=$(patsubst ./%,%,$(SOURCES:.c=.o))
+CLOBJ=$(addprefix build/clib2/,$(REL))
+LNOBJ=$(addprefix build/libnix/,$(REL))
+
+TESTLIB_SOURCES=$(wildcard ./src/test/*.c)
+TESTLIB_REL=$(patsubst ./%,%,$(TESTLIB_SOURCES:.c=.o))
+TESTLIB_CLOBJ=$(addprefix build/clib2/,$(TESTLIB_REL))
+TESTLIB_LNOBJ=$(addprefix build/libnix/,$(TESTLIB_REL))
+all: clib2
+clib2: build/clib2/libSDL3.a build/clib2/libSDL3_test.a
+libnix: build/libnix/libSDL3.a build/libnix/libSDL3_test.a
+both: clib2 libnix
+build/clib2/libSDL3.a: $(CLOBJ)
+	@mkdir -p $(@D)
+	$(AR) crs $@ $^
+	$(RANLIB) $@
+build/libnix/libSDL3.a: $(LNOBJ)
+	@mkdir -p $(@D)
+	$(AR) crs $@ $^
+	$(RANLIB) $@
+build/clib2/libSDL3_test.a: $(TESTLIB_CLOBJ)
+	@mkdir -p $(@D)
+	$(AR) crs $@ $^
+	$(RANLIB) $@
+
+build/libnix/libSDL3_test.a: $(TESTLIB_LNOBJ)
+	@mkdir -p $(@D)
+	$(AR) crs $@ $^
+	$(RANLIB) $@
+
+build/clib2/%.o: %.c
+	@mkdir -p $(@D)
+	$(CC) $(CLIB2) -c $< -o $@
+build/libnix/%.o: %.c
+	@mkdir -p $(@D)
+	$(CC) $(LIBNIX) -c $< -o $@
+# Diagnostic software-only variant: no MiniGL backend object and no -lminigl.
+SW_SOURCES=$(filter-out ./src/video/amigaos3/SDL_os3opengl.c,$(SOURCES))
+SW_REL=$(patsubst ./%,%,$(SW_SOURCES:.c=.o))
+SW_CLOBJ=$(addprefix build/clib2-sw/,$(SW_REL))
+SW_CLIB2=$(COMMON) -mcrt=clib2 -DNOIXEMUL -DSDL_AMIGAOS3_SW_ONLY=1
+TEST_LIBS_SW=-ldebug -lamiga -lm -latomic -lstubs
+
+swonly-clib2: build/clib2-sw/libSDL3_sw.a
+
+build/clib2-sw/libSDL3_sw.a: $(SW_CLOBJ)
+	@mkdir -p $(@D)
+	$(AR) crs $@ $^
+	$(RANLIB) $@
+
+build/clib2-sw/%.o: %.c
+	@mkdir -p $(@D)
+	$(CC) $(SW_CLIB2) -c $< -o $@
+
+build/clib2-sw/examples/test_sw: examples/amigaos3/test_sw.c build/clib2-sw/libSDL3_sw.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL -DSDL_AMIGAOS3_SW_ONLY=1 $(TEST_COMMON) $< build/clib2-sw/libSDL3_sw.a $(TEST_LIBS_SW) -o $@
+
+test-swonly-clib2: build/clib2-sw/examples/test_sw
+
+clean:
+	rm -rf build/clib2 build/libnix build/clib2-sw
+
+# Simple AmigaOS3 smoke tests (no external data files)
+TEST_COMMON=-I./include -I./include/build_config -I./include/SDL3 -D__AMIGAOS3__
+TEST_LIBS=-lminigl -ldebug -lamiga -lm -latomic -lstubs
+
+examples-clib2: build/clib2/examples/test_startup build/clib2/examples/test_sw build/clib2/examples/test_gl build/clib2/examples/test_surface build/clib2/examples/test_thread build/clib2/examples/test_input build/clib2/examples/test_joystick build/clib2/examples/test_modes build/clib2/examples/test_fullscreen_sw build/clib2/examples/test_fullscreen_gl build/clib2/examples/test_filesystem build/clib2/examples/test_messagebox build/clib2/examples/test_dialog build/clib2/examples/test_time_locale build/clib2/examples/test_window_api build/clib2/examples/test_audio build/clib2/examples/test_sincos build/clib2/examples/test_math
+examples-libnix: build/libnix/examples/test_startup build/libnix/examples/test_sw build/libnix/examples/test_gl build/libnix/examples/test_surface build/libnix/examples/test_thread build/libnix/examples/test_input build/libnix/examples/test_joystick build/libnix/examples/test_modes build/libnix/examples/test_fullscreen_sw build/libnix/examples/test_fullscreen_gl build/libnix/examples/test_filesystem build/libnix/examples/test_messagebox build/libnix/examples/test_dialog build/libnix/examples/test_time_locale build/libnix/examples/test_window_api build/libnix/examples/test_audio build/libnix/examples/test_sincos build/libnix/examples/test_math
+examples: examples-clib2
+examples-both: examples-clib2 examples-libnix
+
+
+build/clib2/examples/test_startup: examples/amigaos3/test_startup.c
+	mkdir -p build/clib2/examples
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $(TEST_COMMON) $< -lamiga -o $@
+
+build/libnix/examples/test_startup: examples/amigaos3/test_startup.c
+	mkdir -p build/libnix/examples
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $(TEST_COMMON) $< -lamiga -o $@
+
+build/clib2/examples/test_sw: examples/amigaos3/test_sw.c build/clib2/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $(TEST_COMMON) $< build/clib2/libSDL3.a $(TEST_LIBS) -o $@
+
+build/clib2/examples/test_gl: examples/amigaos3/test_gl.c build/clib2/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $(TEST_COMMON) $< build/clib2/libSDL3.a $(TEST_LIBS) -o $@
+
+build/libnix/examples/test_sw: examples/amigaos3/test_sw.c build/libnix/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $(TEST_COMMON) $< build/libnix/libSDL3.a $(TEST_LIBS) -o $@
+
+build/libnix/examples/test_gl: examples/amigaos3/test_gl.c build/libnix/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $(TEST_COMMON) $< build/libnix/libSDL3.a $(TEST_LIBS) -o $@
+
+
+build/clib2/examples/test_surface: examples/amigaos3/test_surface.c build/clib2/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $(TEST_COMMON) $< build/clib2/libSDL3.a $(TEST_LIBS) -o $@
+
+build/libnix/examples/test_surface: examples/amigaos3/test_surface.c build/libnix/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $(TEST_COMMON) $< build/libnix/libSDL3.a $(TEST_LIBS) -o $@
+
+surface-clib2: build/clib2/examples/test_surface
+surface-libnix: build/libnix/examples/test_surface
+
+startup-clib2: build/clib2/examples/test_startup
+startup-libnix: build/libnix/examples/test_startup
+
+
+# Pre-main isolation diagnostics.
+START_DIAG_DIR=build/clib2-sw/startdiag
+START_BASE=-std=gnu99 -O0 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $(TEST_COMMON)
+
+$(START_DIAG_DIR)/test_start_plain: examples/amigaos3/test_start_plain.c
+	@mkdir -p $(@D)
+	$(CC) $(START_BASE) $< -lamiga -o $@
+
+$(START_DIAG_DIR)/test_start_linklibs: examples/amigaos3/test_start_linklibs.c
+	@mkdir -p $(@D)
+	$(CC) $(START_BASE) $< $(TEST_LIBS_SW) -o $@
+
+$(START_DIAG_DIR)/test_start_sdllink: examples/amigaos3/test_start_sdllink.c build/clib2-sw/libSDL3_sw.a
+	@mkdir -p $(@D)
+	$(CC) $(START_BASE) $< build/clib2-sw/libSDL3_sw.a $(TEST_LIBS_SW) -o $@
+
+$(START_DIAG_DIR)/test_start_sdlversion: examples/amigaos3/test_start_sdlversion.c build/clib2-sw/libSDL3_sw.a
+	@mkdir -p $(@D)
+	$(CC) $(START_BASE) $< build/clib2-sw/libSDL3_sw.a $(TEST_LIBS_SW) \
+		-Wl,-Map,$(START_DIAG_DIR)/test_start_sdlversion.map -Wl,--cref -o $@
+
+startupdiag-clib2: $(START_DIAG_DIR)/test_start_plain \
+                   $(START_DIAG_DIR)/test_start_linklibs \
+                   $(START_DIAG_DIR)/test_start_sdllink \
+                   $(START_DIAG_DIR)/test_start_sdlversion
+
+
+# Produce a compact text report of what the sdlversion link pulled in.
+startupdiag-report-clib2: $(START_DIAG_DIR)/test_start_sdlversion
+	@echo "=== Archive members pulled into test_start_sdlversion ===" > $(START_DIAG_DIR)/startupdiag-report.txt
+	@sed -n '/^Archive member included/,/^Allocating common symbols/p' $(START_DIAG_DIR)/test_start_sdlversion.map >> $(START_DIAG_DIR)/startupdiag-report.txt
+	@echo "" >> $(START_DIAG_DIR)/startupdiag-report.txt
+	@echo "=== Sections in executable ===" >> $(START_DIAG_DIR)/startupdiag-report.txt
+	@m68k-amigaos-objdump -h $(START_DIAG_DIR)/test_start_sdlversion >> $(START_DIAG_DIR)/startupdiag-report.txt 2>&1 || true
+	@echo "" >> $(START_DIAG_DIR)/startupdiag-report.txt
+	@echo "=== Constructor/init related symbols ===" >> $(START_DIAG_DIR)/startupdiag-report.txt
+	@m68k-amigaos-nm -n $(START_DIAG_DIR)/test_start_sdlversion 2>/dev/null | grep -Ei 'ctor|dtor|init|exit|startup|library' >> $(START_DIAG_DIR)/startupdiag-report.txt || true
+	@echo "Wrote $(START_DIAG_DIR)/startupdiag-report.txt"
+
+
+CTOR_DIAG_DIR=build/clib2-sw/ctordiag
+CTOR_BASE=-std=gnu99 -O0 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL -I./include -I./include/build_config -I./include/SDL3 -D__AMIGAOS3__
+
+$(CTOR_DIAG_DIR)/test_ctor_math: examples/amigaos3/test_ctor_math.c
+	@mkdir -p $(@D)
+	$(CC) $(CTOR_BASE) $< -lamiga -lm -lstubs -o $@
+
+$(CTOR_DIAG_DIR)/test_ctor_stdio: examples/amigaos3/test_ctor_stdio.c
+	@mkdir -p $(@D)
+	$(CC) $(CTOR_BASE) $< -lamiga -lstubs -o $@
+
+$(CTOR_DIAG_DIR)/test_ctor_locale: examples/amigaos3/test_ctor_locale.c
+	@mkdir -p $(@D)
+	$(CC) $(CTOR_BASE) $< -lamiga -lstubs -o $@
+
+$(CTOR_DIAG_DIR)/test_ctor_atomic: examples/amigaos3/test_ctor_atomic.c
+	@mkdir -p $(@D)
+	$(CC) $(CTOR_BASE) $< -lamiga -latomic -lstubs -o $@
+
+ctordiag-clib2: $(CTOR_DIAG_DIR)/test_ctor_math \
+                $(CTOR_DIAG_DIR)/test_ctor_stdio \
+                $(CTOR_DIAG_DIR)/test_ctor_locale \
+                $(CTOR_DIAG_DIR)/test_ctor_atomic
+
+
+build/clib2/examples/test_thread: examples/amigaos3/test_thread.c build/clib2/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $(TEST_COMMON) $< build/clib2/libSDL3.a $(TEST_LIBS) -o $@
+
+build/libnix/examples/test_thread: examples/amigaos3/test_thread.c build/libnix/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $(TEST_COMMON) $< build/libnix/libSDL3.a $(TEST_LIBS) -o $@
+
+thread-clib2: build/clib2/examples/test_thread
+thread-libnix: build/libnix/examples/test_thread
+
+
+build/clib2/examples/test_input: examples/amigaos3/test_input.c build/clib2/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $(TEST_COMMON) $< build/clib2/libSDL3.a $(TEST_LIBS) -o $@
+
+build/libnix/examples/test_input: examples/amigaos3/test_input.c build/libnix/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $(TEST_COMMON) $< build/libnix/libSDL3.a $(TEST_LIBS) -o $@
+
+input-clib2: build/clib2/examples/test_input
+input-libnix: build/libnix/examples/test_input
+
+
+build/clib2/examples/test_joystick: examples/amigaos3/test_joystick.c build/clib2/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $(TEST_COMMON) $< build/clib2/libSDL3.a $(TEST_LIBS) -o $@
+
+joystick-clib2: build/clib2/examples/test_joystick
+
+
+build/clib2/examples/test_lowlevel: examples/amigaos3/test_lowlevel.c
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $< -lamiga -lstubs -o $@
+
+lowlevel-clib2: build/clib2/examples/test_lowlevel
+
+
+build/clib2/examples/test_modes: examples/amigaos3/test_modes.c build/clib2/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $(TEST_COMMON) $< build/clib2/libSDL3.a $(TEST_LIBS) -o $@
+
+build/clib2/examples/test_fullscreen_sw: examples/amigaos3/test_fullscreen_sw.c build/clib2/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $(TEST_COMMON) $< build/clib2/libSDL3.a $(TEST_LIBS) -o $@
+
+build/clib2/examples/test_fullscreen_gl: examples/amigaos3/test_fullscreen_gl.c build/clib2/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $(TEST_COMMON) $< build/clib2/libSDL3.a $(TEST_LIBS) -o $@
+
+modes-clib2: build/clib2/examples/test_modes
+fullscreen-sw-clib2: build/clib2/examples/test_fullscreen_sw
+fullscreen-gl-clib2: build/clib2/examples/test_fullscreen_gl
+fullscreen-clib2: modes-clib2 fullscreen-sw-clib2 fullscreen-gl-clib2
+
+
+build/clib2/examples/test_filesystem: examples/amigaos3/test_filesystem.c build/clib2/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $(TEST_COMMON) $< build/clib2/libSDL3.a $(TEST_LIBS) -o $@
+build/clib2/examples/test_messagebox: examples/amigaos3/test_messagebox.c build/clib2/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $(TEST_COMMON) $< build/clib2/libSDL3.a $(TEST_LIBS) -o $@
+build/clib2/examples/test_dialog: examples/amigaos3/test_dialog.c build/clib2/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $(TEST_COMMON) $< build/clib2/libSDL3.a $(TEST_LIBS) -o $@
+filesystem-clib2: build/clib2/examples/test_filesystem
+messagebox-clib2: build/clib2/examples/test_messagebox
+dialog-clib2: build/clib2/examples/test_dialog
+fs-dialog-clib2: filesystem-clib2 messagebox-clib2 dialog-clib2
+
+
+build/clib2/examples/test_time_locale: examples/amigaos3/test_time_locale.c build/clib2/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $(TEST_COMMON) $< build/clib2/libSDL3.a $(TEST_LIBS) -o $@
+
+build/clib2/examples/test_window_api: examples/amigaos3/test_window_api.c build/clib2/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $(TEST_COMMON) $< build/clib2/libSDL3.a $(TEST_LIBS) -o $@
+
+time-locale-clib2: build/clib2/examples/test_time_locale
+window-api-clib2: build/clib2/examples/test_window_api
+time-window-clib2: time-locale-clib2 window-api-clib2
+
+
+build/clib2/examples/test_audio: examples/amigaos3/test_audio.c build/clib2/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $(TEST_COMMON) $< build/clib2/libSDL3.a $(TEST_LIBS) -o $@
+
+audio-clib2: build/clib2/examples/test_audio
+
+
+build/clib2/examples/test_ahi_direct: examples/amigaos3/test_ahi_direct.c
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $< -lm -lamiga -lstubs -o $@
+
+ahi-direct-clib2: build/clib2/examples/test_ahi_direct
+
+
+build/clib2/examples/test_ahi_formats: examples/amigaos3/test_ahi_formats.c
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $< -lamiga -lstubs -o $@
+
+ahi-formats-clib2: build/clib2/examples/test_ahi_formats
+
+
+build/clib2/examples/test_sincos: examples/amigaos3/test_sincos.c build/clib2/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $(TEST_COMMON) $< build/clib2/libSDL3.a $(TEST_LIBS) -o $@
+
+sincos-clib2: build/clib2/examples/test_sincos
+
+
+build/clib2/examples/test_math: examples/amigaos3/test_math.c build/clib2/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -mcrt=clib2 -DNOIXEMUL $(TEST_COMMON) $< build/clib2/libSDL3.a $(TEST_LIBS) -o $@
+
+math-clib2: build/clib2/examples/test_math
+
+completeness-clib2: filesystem-clib2 dialog-clib2 math-clib2
+
+
+# ---------------------------------------------------------------------------
+# libnix counterparts for the later AmigaOS3 validation tests
+# ---------------------------------------------------------------------------
+
+build/libnix/examples/test_joystick: examples/amigaos3/test_joystick.c build/libnix/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $(TEST_COMMON) $< build/libnix/libSDL3.a $(TEST_LIBS) -o $@
+
+joystick-libnix: build/libnix/examples/test_joystick
+
+build/libnix/examples/test_lowlevel: examples/amigaos3/test_lowlevel.c
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $< -lamiga -lstubs -o $@
+
+lowlevel-libnix: build/libnix/examples/test_lowlevel
+
+build/libnix/examples/test_modes: examples/amigaos3/test_modes.c build/libnix/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $(TEST_COMMON) $< build/libnix/libSDL3.a $(TEST_LIBS) -o $@
+
+build/libnix/examples/test_fullscreen_sw: examples/amigaos3/test_fullscreen_sw.c build/libnix/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $(TEST_COMMON) $< build/libnix/libSDL3.a $(TEST_LIBS) -o $@
+
+build/libnix/examples/test_fullscreen_gl: examples/amigaos3/test_fullscreen_gl.c build/libnix/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $(TEST_COMMON) $< build/libnix/libSDL3.a $(TEST_LIBS) -o $@
+
+modes-libnix: build/libnix/examples/test_modes
+fullscreen-sw-libnix: build/libnix/examples/test_fullscreen_sw
+fullscreen-gl-libnix: build/libnix/examples/test_fullscreen_gl
+fullscreen-libnix: modes-libnix fullscreen-sw-libnix fullscreen-gl-libnix
+
+build/libnix/examples/test_filesystem: examples/amigaos3/test_filesystem.c build/libnix/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $(TEST_COMMON) $< build/libnix/libSDL3.a $(TEST_LIBS) -o $@
+
+build/libnix/examples/test_messagebox: examples/amigaos3/test_messagebox.c build/libnix/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $(TEST_COMMON) $< build/libnix/libSDL3.a $(TEST_LIBS) -o $@
+
+build/libnix/examples/test_dialog: examples/amigaos3/test_dialog.c build/libnix/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $(TEST_COMMON) $< build/libnix/libSDL3.a $(TEST_LIBS) -o $@
+
+filesystem-libnix: build/libnix/examples/test_filesystem
+messagebox-libnix: build/libnix/examples/test_messagebox
+dialog-libnix: build/libnix/examples/test_dialog
+fs-dialog-libnix: filesystem-libnix messagebox-libnix dialog-libnix
+
+build/libnix/examples/test_time_locale: examples/amigaos3/test_time_locale.c build/libnix/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $(TEST_COMMON) $< build/libnix/libSDL3.a $(TEST_LIBS) -o $@
+
+build/libnix/examples/test_window_api: examples/amigaos3/test_window_api.c build/libnix/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $(TEST_COMMON) $< build/libnix/libSDL3.a $(TEST_LIBS) -o $@
+
+time-locale-libnix: build/libnix/examples/test_time_locale
+window-api-libnix: build/libnix/examples/test_window_api
+time-window-libnix: time-locale-libnix window-api-libnix
+
+build/libnix/examples/test_audio: examples/amigaos3/test_audio.c build/libnix/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $(TEST_COMMON) $< build/libnix/libSDL3.a $(TEST_LIBS) -o $@
+
+audio-libnix: build/libnix/examples/test_audio
+
+build/libnix/examples/test_ahi_direct: examples/amigaos3/test_ahi_direct.c
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $< -lm -lamiga -lstubs -o $@
+
+ahi-direct-libnix: build/libnix/examples/test_ahi_direct
+
+build/libnix/examples/test_ahi_formats: examples/amigaos3/test_ahi_formats.c
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $< -lamiga -lstubs -o $@
+
+ahi-formats-libnix: build/libnix/examples/test_ahi_formats
+
+build/libnix/examples/test_sincos: examples/amigaos3/test_sincos.c build/libnix/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $(TEST_COMMON) $< build/libnix/libSDL3.a $(TEST_LIBS) -o $@
+
+sincos-libnix: build/libnix/examples/test_sincos
+
+build/libnix/examples/test_math: examples/amigaos3/test_math.c build/libnix/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) -std=gnu99 -O2 -mcpu=68040 -mhard-float -noixemul -DNOIXEMUL $(TEST_COMMON) $< build/libnix/libSDL3.a $(TEST_LIBS) -o $@
+
+math-libnix: build/libnix/examples/test_math
+math-both: math-clib2 math-libnix
+
+completeness-libnix: filesystem-libnix dialog-libnix math-libnix
+completeness-both: completeness-clib2 completeness-libnix
+
+testlib-clib2: build/clib2/libSDL3_test.a
+testlib-libnix: build/libnix/libSDL3_test.a
+testlib-both: testlib-clib2 testlib-libnix

@@ -1,0 +1,160 @@
+# Classical AmigaOS 68k Makefile for SDL3_sound
+#
+# Builds separate clib2 and libnix static libraries, plus the shipped
+# test/example programs.
+#
+# clib2 uses: libSDL3.a
+# libnix uses: libSDL3_libnix.a
+
+CC      := m68k-amigaos-gcc
+AR      := m68k-amigaos-ar
+RANLIB  := m68k-amigaos-ranlib
+RM      := rm -f
+MKDIR   := mkdir -p
+CP      := cp
+
+CPUFLAGS  := -mcpu=68040 -mhard-float
+OPTFLAGS  := -O3
+WARNFLAGS := -Wall -Wextra
+
+# Do not let GCC replace these calls with builtins on AmigaOS 68k.
+MATH_BUILTIN_FLAGS := \
+	-fno-builtin-floor \
+	-fno-builtin-ceil \
+	-fno-builtin-sin \
+	-fno-builtin-cos \
+	-fno-builtin-log10
+
+# MIDI/TiMidity is disabled, matching the upstream default.
+# CoreAudio is not applicable to AmigaOS.
+DECODER_FLAGS := \
+	-DSOUND_SUPPORTS_MIDI=0 \
+	-DSOUND_SUPPORTS_COREAUDIO=0
+
+CRTFLAGS :=
+
+CPPFLAGS := -Isrc
+CFLAGS   := $(CPUFLAGS) $(OPTFLAGS) $(WARNFLAGS) $(MATH_BUILTIN_FLAGS) $(DECODER_FLAGS) $(CRTFLAGS)
+LDFLAGS  := $(CPUFLAGS) $(CRTFLAGS)
+
+SDL3_LIBS := -lSDL3
+EXTRA_LIBS := -lm -lminigl -latomic
+
+BUILD_DIR := build/default
+OBJ_DIR   := $(BUILD_DIR)/obj
+BIN_DIR   := $(BUILD_DIR)/bin
+LIB_DIR   := $(BUILD_DIR)/lib
+
+LIB_NAME := libSDL3_sound.a
+LIB := $(LIB_DIR)/$(LIB_NAME)
+
+CORE_SOURCES := \
+	src/SDL_sound.c \
+	src/SDL_sound_aiff.c \
+	src/SDL_sound_au.c \
+	src/SDL_sound_coreaudio.c \
+	src/SDL_sound_flac.c \
+	src/SDL_sound_midi.c \
+	src/SDL_sound_modplug.c \
+	src/SDL_sound_mp3.c \
+	src/SDL_sound_raw.c \
+	src/SDL_sound_shn.c \
+	src/SDL_sound_voc.c \
+	src/SDL_sound_vorbis.c \
+	src/SDL_sound_wav.c
+
+MODPLUG_SOURCES := \
+	src/libmodplug/fastmix.c \
+	src/libmodplug/load_669.c \
+	src/libmodplug/load_amf.c \
+	src/libmodplug/load_ams.c \
+	src/libmodplug/load_dbm.c \
+	src/libmodplug/load_dmf.c \
+	src/libmodplug/load_dsm.c \
+	src/libmodplug/load_far.c \
+	src/libmodplug/load_it.c \
+	src/libmodplug/load_mdl.c \
+	src/libmodplug/load_med.c \
+	src/libmodplug/load_mod.c \
+	src/libmodplug/load_mt2.c \
+	src/libmodplug/load_mtm.c \
+	src/libmodplug/load_okt.c \
+	src/libmodplug/load_gdm.c \
+	src/libmodplug/load_psm.c \
+	src/libmodplug/load_ptm.c \
+	src/libmodplug/load_s3m.c \
+	src/libmodplug/load_stm.c \
+	src/libmodplug/load_ult.c \
+	src/libmodplug/load_umx.c \
+	src/libmodplug/load_xm.c \
+	src/libmodplug/mmcmp.c \
+	src/libmodplug/modplug.c \
+	src/libmodplug/snd_dsp.c \
+	src/libmodplug/snd_flt.c \
+	src/libmodplug/snd_fx.c \
+	src/libmodplug/sndfile.c \
+	src/libmodplug/sndmix.c
+
+SOURCES := $(CORE_SOURCES) $(MODPLUG_SOURCES)
+OBJECTS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(SOURCES))
+
+PROGRAMS := \
+	$(BIN_DIR)/sdlsound_test \
+	$(BIN_DIR)/playsound \
+	$(BIN_DIR)/playsound_simple
+
+.PHONY: all clib2 libnix build library tests clean install
+
+# Build both CRT variants, including tests/examples.
+all: clib2 libnix
+
+clib2:
+	$(MAKE) -f Makefile.amiga build \
+		BUILD_DIR=build/clib2 \
+		LIB_NAME=libSDL3_sound.a \
+		CRTFLAGS=-mcrt=clib2 \
+		SDL3_LIBS=-lSDL3
+
+libnix:
+	$(MAKE) -f Makefile.amiga build \
+		BUILD_DIR=build/libnix \
+		LIB_NAME=libSDL3_sound_libnix.a \
+		CRTFLAGS=-noixemul \
+		SDL3_LIBS=-lSDL3_libnix
+
+build: library tests
+
+library: $(LIB)
+
+tests: $(PROGRAMS)
+
+$(LIB): $(OBJECTS)
+	$(MKDIR) $(@D)
+	$(AR) rcs $@ $(OBJECTS)
+	$(RANLIB) $@
+
+$(OBJ_DIR)/%.o: %.c
+	$(MKDIR) $(@D)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BIN_DIR)/sdlsound_test: cmake/test/main.c $(LIB)
+	$(MKDIR) $(@D)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LIB) $(SDL3_LIBS) $(EXTRA_LIBS)
+
+$(BIN_DIR)/playsound: examples/playsound.c $(LIB)
+	$(MKDIR) $(@D)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LIB) $(SDL3_LIBS) $(EXTRA_LIBS)
+
+$(BIN_DIR)/playsound_simple: examples/playsound_simple.c $(LIB)
+	$(MKDIR) $(@D)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LIB) $(SDL3_LIBS) $(EXTRA_LIBS)
+
+PREFIX := /usr/local
+install: $(LIB)
+	$(MKDIR) $(DESTDIR)$(PREFIX)/lib
+	$(MKDIR) $(DESTDIR)$(PREFIX)/include/SDL3_sound
+	$(CP) $(LIB) $(DESTDIR)$(PREFIX)/lib/
+	$(CP) src/SDL_sound.h $(DESTDIR)$(PREFIX)/include/SDL3_sound/
+
+clean:
+	rm -rf build

@@ -1,0 +1,208 @@
+# SDL3_mixer 3.2.x - classic AmigaOS 68k Makefile
+#
+# Targets:
+#   make -f Makefile.amiga            build clib2 + libnix
+#   make -f Makefile.amiga clib2      build clib2 variant
+#   make -f Makefile.amiga libnix     build libnix variant
+#   make -f Makefile.amiga tests      build tests for both variants
+#   make -f Makefile.amiga examples   build examples for both variants
+#   make -f Makefile.amiga clean
+#
+# SDL3 headers and libraries are expected in the compiler's normal search path.
+
+CC      := m68k-amigaos-gcc
+AR      := m68k-amigaos-ar
+RANLIB  := m68k-amigaos-ranlib
+RM      := rm -f
+MKDIR   := mkdir -p
+CP      := cp -f
+
+CPUFLAGS := -mcpu=68040 -mhard-float
+OPTFLAGS := -O3
+MATHFLAGS := -fno-builtin-floor -fno-builtin-ceil \
+             -fno-builtin-sin -fno-builtin-cos \
+             -fno-builtin-log10
+WARNFLAGS := -Wall -Wextra
+CPPFLAGS := -Iinclude -Isrc -Isrc/codecs \
+            -DBUILD_SDL \
+            -DSDL_BUILD_MAJOR_VERSION=3 \
+            -DSDL_BUILD_MINOR_VERSION=2 \
+            -DSDL_BUILD_MICRO_VERSION=5 \
+            -DDECODER_WAV -DDECODER_AIFF -DDECODER_VOC -DDECODER_AU \
+            -DDECODER_FLAC_DRFLAC -DDECODER_MP3_DRMP3 \
+            -DDECODER_OGGVORBIS_STB -DDECODER_MIDI_TIMIDITY
+CFLAGS := $(CPUFLAGS) $(OPTFLAGS) $(MATHFLAGS) $(WARNFLAGS) -std=c99
+
+CLIB2_CRTFLAGS := -mcrt=clib2
+LIBNIX_CRTFLAGS := -noixemul
+
+# Keep -lm last: the static mixer archive and selected built-in decoders use libm.
+CLIB2_LDLIBS := -lSDL3 -lm
+LIBNIX_LDLIBS := -lSDL3_libnix -lm -latomic -lminigl
+
+BUILDROOT := build-amiga
+CLIB2_DIR := $(BUILDROOT)/clib2
+LIBNIX_DIR := $(BUILDROOT)/libnix
+
+CORE_SRCS := \
+    src/SDL_mixer.c \
+    src/SDL_mixer_metadata_tags.c \
+    src/SDL_mixer_spatialization.c \
+    src/decoder_aiff.c \
+    src/decoder_au.c \
+    src/decoder_drflac.c \
+    src/decoder_drmp3.c \
+    src/decoder_raw.c \
+    src/decoder_sinewave.c \
+    src/decoder_stb_vorbis.c \
+    src/decoder_timidity.c \
+    src/decoder_voc.c \
+    src/decoder_wav.c \
+    src/timidity/common.c \
+    src/timidity/instrum.c \
+    src/timidity/mix.c \
+    src/timidity/output.c \
+    src/timidity/playmidi.c \
+    src/timidity/readmidi.c \
+    src/timidity/resample.c \
+    src/timidity/tables.c \
+    src/timidity/timidity.c
+
+CLIB2_OBJS := $(patsubst %.c,$(CLIB2_DIR)/obj/%.o,$(CORE_SRCS))
+LIBNIX_OBJS := $(patsubst %.c,$(LIBNIX_DIR)/obj/%.o,$(CORE_SRCS))
+
+CLIB2_LIB := $(CLIB2_DIR)/lib/libSDL3_mixer.a
+LIBNIX_LIB := $(LIBNIX_DIR)/lib/libSDL3_mixer.a
+
+TEST_NAMES := testaudiodecoder testmixer testspatialization
+CLIB2_TESTS := $(addprefix $(CLIB2_DIR)/bin/,$(TEST_NAMES))
+LIBNIX_TESTS := $(addprefix $(LIBNIX_DIR)/bin/,$(TEST_NAMES))
+
+EXAMPLE_NAMES := \
+    basics-load-and-play \
+    basics-play-with-options \
+    basics-play-multiple-sounds \
+    basics-metadata \
+    basics-sinewave \
+    basics-seeking \
+    advanced-tag-tracks
+
+CLIB2_EXAMPLES := $(addprefix $(CLIB2_DIR)/bin/,$(EXAMPLE_NAMES))
+LIBNIX_EXAMPLES := $(addprefix $(LIBNIX_DIR)/bin/,$(EXAMPLE_NAMES))
+
+.PHONY: all clib2 libnix tests tests-clib2 tests-libnix \
+        examples examples-clib2 examples-libnix clean
+
+all: clib2 libnix
+
+clib2: $(CLIB2_LIB) $(CLIB2_TESTS) $(CLIB2_EXAMPLES) clib2-resources
+
+libnix: $(LIBNIX_LIB) $(LIBNIX_TESTS) $(LIBNIX_EXAMPLES) libnix-resources
+
+tests: tests-clib2 tests-libnix
+tests-clib2: $(CLIB2_TESTS)
+tests-libnix: $(LIBNIX_TESTS)
+
+examples: examples-clib2 examples-libnix
+examples-clib2: $(CLIB2_EXAMPLES) clib2-resources
+examples-libnix: $(LIBNIX_EXAMPLES) libnix-resources
+
+$(CLIB2_DIR)/obj/%.o: %.c
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CLIB2_CRTFLAGS) -c $< -o $@
+
+$(LIBNIX_DIR)/obj/%.o: %.c
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LIBNIX_CRTFLAGS) -c $< -o $@
+
+$(CLIB2_LIB): $(CLIB2_OBJS)
+	@$(MKDIR) $(dir $@)
+	$(AR) rcs $@ $^
+	$(RANLIB) $@
+
+$(LIBNIX_LIB): $(LIBNIX_OBJS)
+	@$(MKDIR) $(dir $@)
+	$(AR) rcs $@ $^
+	$(RANLIB) $@
+
+# Tests supplied with SDL3_mixer.
+$(CLIB2_DIR)/bin/testaudiodecoder: test/testaudiodecoder.c $(CLIB2_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CLIB2_CRTFLAGS) $< $(CLIB2_LIB) $(CLIB2_LDLIBS) -o $@
+
+$(CLIB2_DIR)/bin/testmixer: test/testmixer.c $(CLIB2_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CLIB2_CRTFLAGS) $< $(CLIB2_LIB) $(CLIB2_LDLIBS) -o $@
+
+$(CLIB2_DIR)/bin/testspatialization: test/testspatialization.c $(CLIB2_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CLIB2_CRTFLAGS) $< $(CLIB2_LIB) $(CLIB2_LDLIBS) -o $@
+
+$(LIBNIX_DIR)/bin/testaudiodecoder: test/testaudiodecoder.c $(LIBNIX_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LIBNIX_CRTFLAGS) $< $(LIBNIX_LIB) $(LIBNIX_LDLIBS) -o $@
+
+$(LIBNIX_DIR)/bin/testmixer: test/testmixer.c $(LIBNIX_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LIBNIX_CRTFLAGS) $< $(LIBNIX_LIB) $(LIBNIX_LDLIBS) -o $@
+
+$(LIBNIX_DIR)/bin/testspatialization: test/testspatialization.c $(LIBNIX_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LIBNIX_CRTFLAGS) $< $(LIBNIX_LIB) $(LIBNIX_LDLIBS) -o $@
+
+# Official examples supplied with SDL3_mixer.
+$(CLIB2_DIR)/bin/basics-load-and-play: examples/basics/01-load-and-play/load-and-play.c $(CLIB2_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CLIB2_CRTFLAGS) $< $(CLIB2_LIB) $(CLIB2_LDLIBS) -o $@
+$(CLIB2_DIR)/bin/basics-play-with-options: examples/basics/02-play-with-options/play-with-options.c $(CLIB2_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CLIB2_CRTFLAGS) $< $(CLIB2_LIB) $(CLIB2_LDLIBS) -o $@
+$(CLIB2_DIR)/bin/basics-play-multiple-sounds: examples/basics/03-play-multiple-sounds/play-multiple-sounds.c $(CLIB2_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CLIB2_CRTFLAGS) $< $(CLIB2_LIB) $(CLIB2_LDLIBS) -o $@
+$(CLIB2_DIR)/bin/basics-metadata: examples/basics/04-metadata/metadata.c $(CLIB2_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CLIB2_CRTFLAGS) $< $(CLIB2_LIB) $(CLIB2_LDLIBS) -o $@
+$(CLIB2_DIR)/bin/basics-sinewave: examples/basics/05-sinewave/sinewave.c $(CLIB2_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CLIB2_CRTFLAGS) $< $(CLIB2_LIB) $(CLIB2_LDLIBS) -o $@
+$(CLIB2_DIR)/bin/basics-seeking: examples/basics/06-seeking/seeking.c $(CLIB2_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CLIB2_CRTFLAGS) $< $(CLIB2_LIB) $(CLIB2_LDLIBS) -o $@
+$(CLIB2_DIR)/bin/advanced-tag-tracks: examples/advanced/01-tag-tracks/tag-tracks.c $(CLIB2_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CLIB2_CRTFLAGS) $< $(CLIB2_LIB) $(CLIB2_LDLIBS) -o $@
+
+$(LIBNIX_DIR)/bin/basics-load-and-play: examples/basics/01-load-and-play/load-and-play.c $(LIBNIX_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LIBNIX_CRTFLAGS) $< $(LIBNIX_LIB) $(LIBNIX_LDLIBS) -o $@
+$(LIBNIX_DIR)/bin/basics-play-with-options: examples/basics/02-play-with-options/play-with-options.c $(LIBNIX_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LIBNIX_CRTFLAGS) $< $(LIBNIX_LIB) $(LIBNIX_LDLIBS) -o $@
+$(LIBNIX_DIR)/bin/basics-play-multiple-sounds: examples/basics/03-play-multiple-sounds/play-multiple-sounds.c $(LIBNIX_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LIBNIX_CRTFLAGS) $< $(LIBNIX_LIB) $(LIBNIX_LDLIBS) -o $@
+$(LIBNIX_DIR)/bin/basics-metadata: examples/basics/04-metadata/metadata.c $(LIBNIX_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LIBNIX_CRTFLAGS) $< $(LIBNIX_LIB) $(LIBNIX_LDLIBS) -o $@
+$(LIBNIX_DIR)/bin/basics-sinewave: examples/basics/05-sinewave/sinewave.c $(LIBNIX_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LIBNIX_CRTFLAGS) $< $(LIBNIX_LIB) $(LIBNIX_LDLIBS) -o $@
+$(LIBNIX_DIR)/bin/basics-seeking: examples/basics/06-seeking/seeking.c $(LIBNIX_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LIBNIX_CRTFLAGS) $< $(LIBNIX_LIB) $(LIBNIX_LDLIBS) -o $@
+$(LIBNIX_DIR)/bin/advanced-tag-tracks: examples/advanced/01-tag-tracks/tag-tracks.c $(LIBNIX_LIB)
+	@$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LIBNIX_CRTFLAGS) $< $(LIBNIX_LIB) $(LIBNIX_LDLIBS) -o $@
+
+.PHONY: clib2-resources libnix-resources
+clib2-resources:
+	@$(MKDIR) $(CLIB2_DIR)/bin
+	@$(CP) examples/music.mp3 examples/sword.wav examples/spring.wav examples/splash.wav $(CLIB2_DIR)/bin/
+
+libnix-resources:
+	@$(MKDIR) $(LIBNIX_DIR)/bin
+	@$(CP) examples/music.mp3 examples/sword.wav examples/spring.wav examples/splash.wav $(LIBNIX_DIR)/bin/
+
+clean:
+	rm -rf $(BUILDROOT)

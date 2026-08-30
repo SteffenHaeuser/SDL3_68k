@@ -1,0 +1,121 @@
+# Classical AmigaOS 68k Makefile for SDL3_net
+#
+# Builds separate clib2 and libnix variants and the shipped example programs.
+# The AmigaOS backend uses bsdsocket.library directly.
+
+CC      := m68k-amigaos-gcc
+AR      := m68k-amigaos-ar
+RANLIB  := m68k-amigaos-ranlib
+RM      := rm -f
+MKDIR   := mkdir -p
+CP      := cp
+
+CPUFLAGS  := -mcpu=68040 -mhard-float
+OPTFLAGS  := -O3
+WARNFLAGS := -Wall -Wextra
+STD_FLAGS := -std=c99
+
+MATH_BUILTIN_FLAGS := \
+	-fno-builtin-floor \
+	-fno-builtin-ceil \
+	-fno-builtin-sin \
+	-fno-builtin-cos \
+	-fno-builtin-log10
+
+COMMON_DEFS := \
+	-DBUILD_SDL \
+	-DSDL_BUILD_MAJOR_VERSION=3 \
+	-DSDL_BUILD_MINOR_VERSION=2 \
+	-DSDL_BUILD_MICRO_VERSION=1 \
+	-DSDLNET_AMIGAOS=1
+
+CRTFLAGS :=
+
+CPPFLAGS := -Iinclude
+CFLAGS   := $(CPUFLAGS) $(OPTFLAGS) $(WARNFLAGS) $(STD_FLAGS) \
+            $(MATH_BUILTIN_FLAGS) $(COMMON_DEFS) $(CRTFLAGS)
+LDFLAGS  := $(CPUFLAGS) $(CRTFLAGS)
+
+SDL3_LIBS := -lSDL3
+SDL3_DEPS := -lm -lminigl -latomic
+
+BUILD_DIR := build/default
+OBJ_DIR   := $(BUILD_DIR)/obj
+BIN_DIR   := $(BUILD_DIR)/bin
+LIB_DIR   := $(BUILD_DIR)/lib
+
+LIB_NAME := libSDL3_net.a
+LIB := $(LIB_DIR)/$(LIB_NAME)
+
+LIB_SOURCES := src/SDL_net.c
+LIB_OBJECTS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(LIB_SOURCES))
+
+EXAMPLE_NAMES := \
+	simple-http-get \
+	get-local-addrs \
+	datagram \
+	echo-server \
+	voipchat \
+	resolve-hostnames
+
+EXAMPLES := $(addprefix $(BIN_DIR)/,$(EXAMPLE_NAMES))
+
+.PHONY: all clib2 libnix build library examples clean install install-clib2 install-libnix
+
+all: clib2 libnix
+
+clib2:
+	$(MAKE) -f Makefile.amiga build \
+		BUILD_DIR=build/clib2 \
+		LIB_NAME=libSDL3_net.a \
+		CRTFLAGS=-mcrt=clib2 \
+		COMMON_DEFS="$(COMMON_DEFS) -DSDLNET_CLIB2=1" \
+		SDL3_LIBS=-lSDL3
+
+libnix:
+	$(MAKE) -f Makefile.amiga build \
+		BUILD_DIR=build/libnix \
+		LIB_NAME=libSDL3_net_libnix.a \
+		CRTFLAGS=-noixemul \
+		COMMON_DEFS="$(COMMON_DEFS) -DSDLNET_LIBNIX=1" \
+		SDL3_LIBS=-lSDL3_libnix
+
+build: library examples
+
+library: $(LIB)
+
+examples: $(EXAMPLES)
+
+$(LIB): $(LIB_OBJECTS) | $(LIB_DIR)
+	$(AR) rcs $@ $(LIB_OBJECTS)
+	$(RANLIB) $@
+
+$(OBJ_DIR)/%.o: %.c | $(OBJ_DIR)
+	$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BIN_DIR)/%: examples/%.c $(LIB) | $(BIN_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LIB) $(SDL3_LIBS) $(SDL3_DEPS)
+
+$(OBJ_DIR) $(BIN_DIR) $(LIB_DIR):
+	$(MKDIR) $@
+
+PREFIX := /usr/local
+
+install:
+	@echo "Use install-clib2 or install-libnix."
+
+install-clib2: clib2
+	$(MKDIR) $(DESTDIR)$(PREFIX)/lib
+	$(MKDIR) $(DESTDIR)$(PREFIX)/include/SDL3_net
+	$(CP) build/clib2/lib/libSDL3_net.a $(DESTDIR)$(PREFIX)/lib/
+	$(CP) include/SDL3_net/SDL_net.h $(DESTDIR)$(PREFIX)/include/SDL3_net/
+
+install-libnix: libnix
+	$(MKDIR) $(DESTDIR)$(PREFIX)/lib
+	$(MKDIR) $(DESTDIR)$(PREFIX)/include/SDL3_net
+	$(CP) build/libnix/lib/libSDL3_net_libnix.a $(DESTDIR)$(PREFIX)/lib/
+	$(CP) include/SDL3_net/SDL_net.h $(DESTDIR)$(PREFIX)/include/SDL3_net/
+
+clean:
+	rm -rf build

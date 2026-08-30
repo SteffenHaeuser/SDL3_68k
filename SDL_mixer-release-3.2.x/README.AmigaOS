@@ -1,0 +1,75 @@
+SDL3_mixer 3.2.x - AmigaOS 68k classic Makefile
+================================================
+
+Build both CRT variants:
+
+    make
+
+Build one variant only:
+
+    make clib2
+    make libnix
+
+Build only tests or examples:
+
+    make tests
+    make examples
+
+Default compiler setup:
+
+    m68k-amigaos-gcc
+    -mcpu=68040 -mhard-float -O3
+
+The compiler, archiver and ranlib are assigned with := in Makefile.
+
+CRT variants:
+
+    clib2 : -mcrt=clib2
+    libnix: -noixemul
+
+Math builtins deliberately disabled:
+
+    -fno-builtin-floor
+    -fno-builtin-ceil
+    -fno-builtin-sin
+    -fno-builtin-cos
+    -fno-builtin-log10
+
+Other math builtins are left untouched.
+
+Enabled self-contained decoders:
+
+    WAV
+    AIFF
+    VOC
+    AU
+    FLAC via dr_flac
+    MP3 via dr_mp3
+    Ogg Vorbis via stb_vorbis
+    MIDI via bundled Timidity
+    RAW
+    sinewave
+
+Not enabled by this Makefile because they require additional external
+libraries or ports:
+
+    libFLAC
+    mpg123
+    libvorbisfile/Tremor
+    Opus
+    FluidSynth
+    GME
+    XMP
+    WavPack
+
+Outputs:
+
+    build-amiga/clib2/lib/libSDL3_mixer.a
+    build-amiga/libnix/lib/libSDL3_mixer.a
+
+The three upstream tests and seven upstream examples are built into the
+corresponding build-amiga/<crt>/bin directories. Example audio resources
+are copied there as well.
+
+SDL3 headers and libSDL3 are expected in the cross compiler's standard
+include/library paths.

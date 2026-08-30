@@ -1,0 +1,33 @@
+SDL3_net AmigaOS 68k notes
+=============================
+
+Build:
+  make -f Makefile.amiga
+
+Individual CRT variants:
+  make -f Makefile.amiga clib2
+  make -f Makefile.amiga libnix
+
+Outputs:
+  build/clib2/lib/libSDL3_net.a
+  build/libnix/lib/libSDL3_net_libnix.a
+
+SDL3 linkage:
+  clib2  -> -lSDL3
+  libnix -> -lSDL3_libnix
+
+AmigaOS socket backend:
+- Opens bsdsocket.library v4 in NET_Init().
+- Closes bsdsocket.library in the final matching NET_Quit().
+- Includes proto/bsdsocket.h and proto/exec.h.
+- Uses CloseSocket() instead of close().
+- Uses IoctlSocket(FIONBIO) instead of fcntl(O_NONBLOCK).
+- Emulates the poll() functionality needed by SDL3_net through WaitSelect().
+- Uses Errno() for bsdsocket.library socket errors.
+- Hostname resolution is synchronous on classic AmigaOS because SocketBase
+  is task-local and must not be shared with SDL resolver worker tasks.
+
+The upstream local-interface enumeration has no classic AmigaOS backend in
+this port yet, so NET_GetLocalAddresses() may not enumerate interfaces.
+Core client/server, stream/datagram and hostname resolution paths are the
+focus of this first port.
