@@ -4,7 +4,9 @@
 
 #include "SDL_os3window.h"
 #include "SDL_os3modes.h"
+#if !defined(SDL_AMIGAOS3_SW_ONLY)
 #include <proto/minigl.h>
+#endif
 
 static bool OS3_SetupData(SDL_Window *window, struct Window *syswin)
 {
@@ -185,7 +187,9 @@ void OS3_SetWindowSize(SDL_VideoDevice *_this, SDL_Window *window)
     if (!d || !d->syswin) return;
 
     if (d->minigl_owns_window) {
+#if !defined(SDL_AMIGAOS3_SW_ONLY)
         if (d->gl_context) mglResizeContext(window->pending.w, window->pending.h);
+#endif
         return;
     }
 
