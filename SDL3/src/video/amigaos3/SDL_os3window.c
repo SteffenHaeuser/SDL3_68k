@@ -107,14 +107,6 @@ bool OS3_CreateWindow(SDL_VideoDevice *_this, SDL_Window *window, SDL_Properties
     struct Window *w;
     (void)props;
 
-    /*
-     * MiniGL owns its native Window. SDL only allocates per-window data here;
-     * OS3_GL_CreateContext() creates the Window later.
-     */
-    if (window->flags & SDL_WINDOW_OPENGL) {
-        return OS3_SetupData(window, NULL);
-    }
-
     if (!vd || !vd->publicScreen) {
         return SDL_SetError("AmigaOS3: no public screen available");
     }
@@ -141,7 +133,7 @@ void OS3_DestroyWindow(SDL_VideoDevice *_this, SDL_Window *window)
         return;
     }
 
-    if (d->syswin && !d->minigl_owns_window) {
+    if (d->syswin) {
         CloseWindow(d->syswin);
     }
 
@@ -155,7 +147,7 @@ static void OS3_ApplyWindowLimits(SDL_Window *window)
     SDL_WindowData *d = window ? window->internal : NULL;
     int minw = 1, minh = 1, maxw = -1, maxh = -1;
 
-    if (!d || !d->syswin || d->minigl_owns_window) return;
+    if (!d || !d->syswin) return;
 
     if (window->min_w > 0) minw = window->min_w + d->syswin->BorderLeft + d->syswin->BorderRight;
     if (window->min_h > 0) minh = window->min_h + d->syswin->BorderTop + d->syswin->BorderBottom;
@@ -170,8 +162,6 @@ bool OS3_SetWindowPosition(SDL_VideoDevice *_this, SDL_Window *window)
     SDL_WindowData *d = window ? window->internal : NULL;
     (void)_this;
     if (!d || !d->syswin) return false;
-    if (d->minigl_owns_window) return SDL_SetError("AmigaOS3: moving a MiniGL-owned window is unsupported");
-
     MoveWindow(d->syswin,
                window->pending.x - d->syswin->LeftEdge,
                window->pending.y - d->syswin->TopEdge);
@@ -186,16 +176,12 @@ void OS3_SetWindowSize(SDL_VideoDevice *_this, SDL_Window *window)
     (void)_this;
     if (!d || !d->syswin) return;
 
-    if (d->minigl_owns_window) {
-#if !defined(SDL_AMIGAOS3_SW_ONLY)
-        if (d->gl_context) mglResizeContext(window->pending.w, window->pending.h);
-#endif
-        return;
-    }
-
     cw = d->syswin->GZZWidth;
     ch = d->syswin->GZZHeight;
     SizeWindow(d->syswin, window->pending.w - cw, window->pending.h - ch);
+#if !defined(SDL_AMIGAOS3_SW_ONLY)
+    if (d->gl_context) mglResizeContext(window->pending.w, window->pending.h);
+#endif
 }
 
 void OS3_SetWindowMinMaxSize(SDL_VideoDevice *_this, SDL_Window *window)
@@ -223,7 +209,7 @@ void OS3_MaximizeWindow(SDL_VideoDevice *_this, SDL_Window *window)
     struct Screen *s;
     int w, h;
     (void)_this;
-    if (!d || !d->syswin || d->minigl_owns_window) return;
+    if (!d || !d->syswin) return;
     s = d->syswin->WScreen;
     w = s->Width - d->syswin->BorderLeft - d->syswin->BorderRight;
     h = s->Height - d->syswin->BorderTop - d->syswin->BorderBottom;
@@ -250,7 +236,7 @@ void OS3_RestoreWindow(SDL_VideoDevice *_this, SDL_Window *window)
     (void)_this;
     if (!d || !d->syswin) return;
 
-    if ((window->flags & SDL_WINDOW_MAXIMIZED) && !d->minigl_owns_window) {
+    if (window->flags & SDL_WINDOW_MAXIMIZED) {
         MoveWindow(d->syswin,
                    window->floating.x - d->syswin->LeftEdge,
                    window->floating.y - d->syswin->TopEdge);
@@ -270,7 +256,7 @@ static void OS3_RecreateWindow(SDL_VideoDevice *_this, SDL_Window *window)
     SDL_VideoData *vd = (SDL_VideoData *)_this->internal;
     struct Window *nw;
 
-    if (!d || !d->syswin || d->minigl_owns_window || (window->flags & SDL_WINDOW_FULLSCREEN)) {
+    if (!d || !d->syswin || d->gl_context || (window->flags & SDL_WINDOW_FULLSCREEN)) {
         return;
     }
 
@@ -350,19 +336,15 @@ SDL_FullscreenResult OS3_SetWindowFullscreen(SDL_VideoDevice *_this,
     }
 
     /*
-     * MiniGL creates and owns both the GL window and fullscreen screen.
-     * A GL window that has not got a context yet can safely enter/leave here;
-     * OS3_GL_CreateContext() will inspect SDL_WINDOW_FULLSCREEN afterwards.
-     * Recreating a live MiniGL context behind SDL's back would invalidate the
-     * user's GL context, so don't do that.
+     * SDL owns the native Window and fullscreen Screen. MiniGL borrows the
+     * Window through mglCreateContextFromWindow(). Recreating that Window
+     * while a live GL context references it would invalidate the context.
      */
-    if (window->flags & SDL_WINDOW_OPENGL) {
-        if (d->gl_context) {
-            if ((op == SDL_FULLSCREEN_OP_ENTER && !(window->flags & SDL_WINDOW_FULLSCREEN)) ||
-                (op == SDL_FULLSCREEN_OP_LEAVE && (window->flags & SDL_WINDOW_FULLSCREEN))) {
-                SDL_SetError("AmigaOS3: live MiniGL fullscreen transitions are not supported yet");
-                return SDL_FULLSCREEN_FAILED;
-            }
+    if ((window->flags & SDL_WINDOW_OPENGL) && d->gl_context) {
+        if ((op == SDL_FULLSCREEN_OP_ENTER && !(window->flags & SDL_WINDOW_FULLSCREEN)) ||
+            (op == SDL_FULLSCREEN_OP_LEAVE && (window->flags & SDL_WINDOW_FULLSCREEN))) {
+            SDL_SetError("AmigaOS3: live MiniGL fullscreen transitions are not supported yet");
+            return SDL_FULLSCREEN_FAILED;
         }
         return SDL_FULLSCREEN_SUCCEEDED;
     }
