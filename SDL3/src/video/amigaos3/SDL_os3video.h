@@ -40,6 +40,7 @@ struct SDL_WindowData {
     struct Window *syswin;
     struct Screen *screen;
     bool owns_screen;
+    bool minigl_owns_window;
     SDL_GLContext gl_context;
     void *fb_pixels;
     int fb_pitch;
