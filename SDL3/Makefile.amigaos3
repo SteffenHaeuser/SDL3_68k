@@ -403,3 +403,14 @@ completeness-both: completeness-clib2 completeness-libnix
 testlib-clib2: build/clib2/libSDL3_test.a
 testlib-libnix: build/libnix/libSDL3_test.a
 testlib-both: testlib-clib2 testlib-libnix
+
+# Application-owned Intuition window smoke test (MiniGL FromWindow).
+.PHONY: gl-existing-clib2 gl-existing-libnix
+gl-existing-clib2: build/clib2/examples/test_gl_existing_window
+gl-existing-libnix: build/libnix/examples/test_gl_existing_window
+build/clib2/examples/test_gl_existing_window: examples/amigaos3/test_gl_existing_window.c build/clib2/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) $(CLIB2) $< build/clib2/libSDL3.a $(TEST_LIBS) -o $@
+build/libnix/examples/test_gl_existing_window: examples/amigaos3/test_gl_existing_window.c build/libnix/libSDL3.a
+	@mkdir -p $(@D)
+	$(CC) $(LIBNIX) $< build/libnix/libSDL3.a $(TEST_LIBS) -o $@

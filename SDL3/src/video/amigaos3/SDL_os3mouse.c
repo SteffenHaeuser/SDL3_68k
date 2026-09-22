@@ -161,7 +161,7 @@ static bool OS3_ShowCursor(SDL_Cursor *cursor)
 {
     SDL_Window *w=SDL_GetMouseFocus();
     SDL_WindowData *d=w ? w->internal : NULL;
-    if (!d || !d->syswin) return true;
+    if (!d || !d->syswin || d->external_window) return true;
     if (cursor && cursor->internal) {
         struct SDL_CursorData *cd=cursor->internal;
         OS3_SetCursorColors(d->syswin->WScreen,cd->colors);
@@ -210,7 +210,7 @@ static bool OS3_WarpMouseInternal(struct Screen *screen,float x,float y)
 static bool OS3_WarpMouse(SDL_Window *window,float x,float y)
 {
     SDL_WindowData *d=window ? window->internal : NULL;
-    if (!d || !d->syswin) return false;
+    if (!d || !d->syswin || d->external_window) return false;
     if (SDL_GetRelativeMouseMode()) {
         SDL_SendMouseMotion(0,window,SDL_DEFAULT_MOUSE_ID,true,x,y);
         return true;
@@ -231,7 +231,7 @@ static bool OS3_SetRelativeMouseMode(bool enabled)
     if (!os3_mouse_device) return false;
     for (w=os3_mouse_device->windows;w;w=w->next) {
         SDL_WindowData *d=w->internal;
-        if (d && d->syswin) {
+        if (d && d->syswin && !d->external_window) {
             ULONG flags=(w->flags&SDL_WINDOW_FULLSCREEN)?OS3_IDCMP_FULLSCREEN:OS3_IDCMP_WINDOWED;
             if (enabled) flags|=IDCMP_DELTAMOVE;
             ModifyIDCMP(d->syswin,flags);

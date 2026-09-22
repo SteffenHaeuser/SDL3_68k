@@ -5,7 +5,7 @@
 #include "SDL_os3window.h"
 #include "SDL_os3modes.h"
 #if !defined(SDL_AMIGAOS3_SW_ONLY)
-#include <proto/minigl.h>
+#include "SDL_os3opengl.h"
 #endif
 
 static bool OS3_SetupData(SDL_Window *window, struct Window *syswin)
@@ -105,14 +105,37 @@ bool OS3_CreateWindow(SDL_VideoDevice *_this, SDL_Window *window, SDL_Properties
 {
     SDL_VideoData *vd = (SDL_VideoData *)_this->internal;
     struct Window *w;
-    (void)props;
-
-    /*
-     * MiniGL owns its native Window. SDL only allocates per-window data here;
-     * OS3_GL_CreateContext() creates the Window later.
-     */
-    if (window->flags & SDL_WINDOW_OPENGL) {
-        return OS3_SetupData(window, NULL);
+    w = (struct Window *)SDL_GetPointerProperty(props,
+        SDL_PROP_WINDOW_CREATE_AMIGAOS3_WINDOW_POINTER, NULL);
+    if (SDL_HasProperty(props, SDL_PROP_WINDOW_CREATE_AMIGAOS3_WINDOW_POINTER)) {
+        SDL_Window *other;
+        if (!w || !w->WScreen || !w->RPort || !w->RPort->BitMap)
+            return SDL_SetError("AmigaOS3: a live Intuition Window is required");
+        if (!(window->flags & SDL_WINDOW_OPENGL))
+            return SDL_SetError("AmigaOS3: external windows require OpenGL");
+        if (!CyberGfxBase || GetBitMapAttr(w->RPort->BitMap, BMA_DEPTH) <= 8)
+            return SDL_SetError("AmigaOS3: external GL windows require true-color RTG");
+        for (other = _this->windows; other; other = other->next) {
+            SDL_WindowData *data = other->internal;
+            if (data && data->syswin == w)
+                return SDL_SetError("AmigaOS3: native window already wrapped by SDL");
+        }
+        if (w->Width <= w->BorderLeft + w->BorderRight ||
+            w->Height <= w->BorderTop + w->BorderBottom)
+            return SDL_SetError("AmigaOS3: native window has no drawable area");
+        if (!OS3_SetupData(window, w)) return false;
+        window->internal->external_window = true;
+        window->flags |= SDL_WINDOW_EXTERNAL;
+        window->flags &= ~(SDL_WINDOW_HIDDEN | SDL_WINDOW_FULLSCREEN);
+        window->x = w->LeftEdge;
+        window->y = w->TopEdge;
+        window->w = w->Width - w->BorderLeft - w->BorderRight;
+        window->h = w->Height - w->BorderTop - w->BorderBottom;
+        window->windowed.x = window->x;
+        window->windowed.y = window->y;
+        window->windowed.w = window->w;
+        window->windowed.h = window->h;
+        return true;
     }
 
     if (!vd || !vd->publicScreen) {
@@ -129,7 +152,11 @@ bool OS3_CreateWindow(SDL_VideoDevice *_this, SDL_Window *window, SDL_Properties
     window->w = w->GZZWidth;
     window->h = w->GZZHeight;
 
-    return OS3_SetupData(window, w);
+    if (!OS3_SetupData(window, w)) {
+        CloseWindow(w);
+        return false;
+    }
+    return true;
 }
 
 void OS3_DestroyWindow(SDL_VideoDevice *_this, SDL_Window *window)
@@ -141,7 +168,10 @@ void OS3_DestroyWindow(SDL_VideoDevice *_this, SDL_Window *window)
         return;
     }
 
-    if (d->syswin && !d->minigl_owns_window) {
+#if defined(SDL_VIDEO_OPENGL)
+    if (d->gl_context) OS3_GL_DestroyContext(_this, d->gl_context);
+#endif
+    if (d->syswin && !d->external_window) {
         CloseWindow(d->syswin);
     }
 
@@ -155,7 +185,7 @@ static void OS3_ApplyWindowLimits(SDL_Window *window)
     SDL_WindowData *d = window ? window->internal : NULL;
     int minw = 1, minh = 1, maxw = -1, maxh = -1;
 
-    if (!d || !d->syswin || d->minigl_owns_window) return;
+    if (!d || !d->syswin || d->external_window) return;
 
     if (window->min_w > 0) minw = window->min_w + d->syswin->BorderLeft + d->syswin->BorderRight;
     if (window->min_h > 0) minh = window->min_h + d->syswin->BorderTop + d->syswin->BorderBottom;
@@ -170,7 +200,7 @@ bool OS3_SetWindowPosition(SDL_VideoDevice *_this, SDL_Window *window)
     SDL_WindowData *d = window ? window->internal : NULL;
     (void)_this;
     if (!d || !d->syswin) return false;
-    if (d->minigl_owns_window) return SDL_SetError("AmigaOS3: moving a MiniGL-owned window is unsupported");
+    if (d->external_window) return SDL_SetError("AmigaOS3: moving an application-owned window is unsupported");
 
     MoveWindow(d->syswin,
                window->pending.x - d->syswin->LeftEdge,
@@ -184,14 +214,7 @@ void OS3_SetWindowSize(SDL_VideoDevice *_this, SDL_Window *window)
     SDL_WindowData *d = window ? window->internal : NULL;
     int cw, ch;
     (void)_this;
-    if (!d || !d->syswin) return;
-
-    if (d->minigl_owns_window) {
-#if !defined(SDL_AMIGAOS3_SW_ONLY)
-        if (d->gl_context) mglResizeContext(window->pending.w, window->pending.h);
-#endif
-        return;
-    }
+    if (!d || !d->syswin || d->external_window) return;
 
     cw = d->syswin->GZZWidth;
     ch = d->syswin->GZZHeight;
@@ -223,7 +246,7 @@ void OS3_MaximizeWindow(SDL_VideoDevice *_this, SDL_Window *window)
     struct Screen *s;
     int w, h;
     (void)_this;
-    if (!d || !d->syswin || d->minigl_owns_window) return;
+    if (!d || !d->syswin || d->external_window) return;
     s = d->syswin->WScreen;
     w = s->Width - d->syswin->BorderLeft - d->syswin->BorderRight;
     h = s->Height - d->syswin->BorderTop - d->syswin->BorderBottom;
@@ -236,7 +259,7 @@ void OS3_MinimizeWindow(SDL_VideoDevice *_this, SDL_Window *window)
 {
     SDL_WindowData *d = window ? window->internal : NULL;
     (void)_this;
-    if (!d || !d->syswin) return;
+    if (!d || !d->syswin || d->external_window) return;
 
     /* Classic Intuition has no generic hide/iconify call without Workbench
        AppIcon plumbing. WindowToBack is the safe native approximation. */
@@ -248,9 +271,9 @@ void OS3_RestoreWindow(SDL_VideoDevice *_this, SDL_Window *window)
 {
     SDL_WindowData *d = window ? window->internal : NULL;
     (void)_this;
-    if (!d || !d->syswin) return;
+    if (!d || !d->syswin || d->external_window) return;
 
-    if ((window->flags & SDL_WINDOW_MAXIMIZED) && !d->minigl_owns_window) {
+    if ((window->flags & SDL_WINDOW_MAXIMIZED) && !d->external_window) {
         MoveWindow(d->syswin,
                    window->floating.x - d->syswin->LeftEdge,
                    window->floating.y - d->syswin->TopEdge);
@@ -270,7 +293,7 @@ static void OS3_RecreateWindow(SDL_VideoDevice *_this, SDL_Window *window)
     SDL_VideoData *vd = (SDL_VideoData *)_this->internal;
     struct Window *nw;
 
-    if (!d || !d->syswin || d->minigl_owns_window || (window->flags & SDL_WINDOW_FULLSCREEN)) {
+    if (!d || !d->syswin || d->external_window || d->gl_context || (window->flags & SDL_WINDOW_FULLSCREEN)) {
         return;
     }
 
@@ -302,14 +325,14 @@ void OS3_SetWindowAlwaysOnTop(SDL_VideoDevice *_this, SDL_Window *window, bool o
 {
     SDL_WindowData *d = window ? window->internal : NULL;
     (void)_this;
-    if (d && d->syswin && on_top) WindowToFront(d->syswin);
+    if (d && d->syswin && !d->external_window && on_top) WindowToFront(d->syswin);
 }
 
 bool OS3_SetWindowMouseGrab(SDL_VideoDevice *_this, SDL_Window *window, bool grabbed)
 {
     SDL_WindowData *d = window ? window->internal : NULL;
     (void)_this;
-    if (!d || !d->syswin) return false;
+    if (!d || !d->syswin || d->external_window) return false;
 
     /*
      * Classic Intuition has no universal pointer confinement API.
@@ -329,7 +352,7 @@ bool OS3_SetWindowKeyboardGrab(SDL_VideoDevice *_this, SDL_Window *window, bool 
 {
     SDL_WindowData *d = window ? window->internal : NULL;
     (void)_this;
-    if (!d || !d->syswin) return false;
+    if (!d || !d->syswin || d->external_window) return false;
     if (grabbed) ActivateWindow(d->syswin);
     return true;
 }
@@ -349,22 +372,9 @@ SDL_FullscreenResult OS3_SetWindowFullscreen(SDL_VideoDevice *_this,
         return SDL_FULLSCREEN_FAILED;
     }
 
-    /*
-     * MiniGL creates and owns both the GL window and fullscreen screen.
-     * A GL window that has not got a context yet can safely enter/leave here;
-     * OS3_GL_CreateContext() will inspect SDL_WINDOW_FULLSCREEN afterwards.
-     * Recreating a live MiniGL context behind SDL's back would invalidate the
-     * user's GL context, so don't do that.
-     */
-    if (window->flags & SDL_WINDOW_OPENGL) {
-        if (d->gl_context) {
-            if ((op == SDL_FULLSCREEN_OP_ENTER && !(window->flags & SDL_WINDOW_FULLSCREEN)) ||
-                (op == SDL_FULLSCREEN_OP_LEAVE && (window->flags & SDL_WINDOW_FULLSCREEN))) {
-                SDL_SetError("AmigaOS3: live MiniGL fullscreen transitions are not supported yet");
-                return SDL_FULLSCREEN_FAILED;
-            }
-        }
-        return SDL_FULLSCREEN_SUCCEEDED;
+    if (d->external_window || d->gl_context) {
+        SDL_SetError("AmigaOS3: cannot replace an external window or a window with a live GL context");
+        return SDL_FULLSCREEN_FAILED;
     }
 
     /* Any SDL window surface points at the old native window. */
@@ -423,11 +433,26 @@ SDL_FullscreenResult OS3_SetWindowFullscreen(SDL_VideoDevice *_this,
     return SDL_FULLSCREEN_SUCCEEDED;
 }
 
+void OS3_GetWindowSizeInPixels(SDL_VideoDevice *_this, SDL_Window *window, int *w, int *h)
+{
+    SDL_WindowData *d = window->internal;
+    int width = window->w, height = window->h;
+    if (d && d->syswin) {
+        width = d->syswin->Width - d->syswin->BorderLeft - d->syswin->BorderRight;
+        height = d->syswin->Height - d->syswin->BorderTop - d->syswin->BorderBottom;
+    }
+#if defined(SDL_VIDEO_OPENGL)
+    OS3_GL_ResizeWindow(_this, window, width, height);
+#endif
+    if (w) *w = width;
+    if (h) *h = height;
+}
+
 void OS3_SetWindowTitle(SDL_VideoDevice *_this, SDL_Window *window)
 {
     SDL_WindowData *d = window->internal;
     (void)_this;
-    if (d && d->syswin) {
+    if (d && d->syswin && !d->external_window) {
         SetWindowTitles(d->syswin, (STRPTR)(window->title ? window->title : "SDL3"), (STRPTR)-1);
     }
 }
@@ -436,7 +461,7 @@ void OS3_ShowWindow(SDL_VideoDevice *_this, SDL_Window *window)
 {
     SDL_WindowData *d = window->internal;
     (void)_this;
-    if (d && d->syswin) {
+    if (d && d->syswin && !d->external_window) {
         WindowToFront(d->syswin);
         ActivateWindow(d->syswin);
     }

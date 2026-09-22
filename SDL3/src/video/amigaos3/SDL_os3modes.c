@@ -113,8 +113,8 @@ bool OS3_SetDisplayMode(SDL_VideoDevice *_this, SDL_VideoDisplay *display, SDL_D
 
     /*
      * SDL calls SetDisplayMode before SetWindowFullscreen. Do not open the
-     * native Screen here: for software windows SetWindowFullscreen owns the
-     * Screen transition, while MiniGL creates/owns its own fullscreen Screen.
+     * native Screen here: SetWindowFullscreen owns the Screen transition
+     * for both software and OpenGL windows. MiniGL only borrows the window.
      */
     if (!mode || mode == &display->desktop_mode) {
         dd->selected_modeid = dd->desktop_modeid;

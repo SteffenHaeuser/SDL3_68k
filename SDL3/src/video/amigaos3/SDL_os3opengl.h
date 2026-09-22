@@ -10,5 +10,6 @@ bool OS3_GL_SetSwapInterval(SDL_VideoDevice *, int);
 bool OS3_GL_GetSwapInterval(SDL_VideoDevice *, int *);
 bool OS3_GL_SwapWindow(SDL_VideoDevice *, SDL_Window *);
 bool OS3_GL_DestroyContext(SDL_VideoDevice *, SDL_GLContext);
+void OS3_GL_ResizeWindow(SDL_VideoDevice *, SDL_Window *, int, int);
 void OS3_GL_DefaultProfileConfig(SDL_VideoDevice *, int *, int *, int *);
 #endif

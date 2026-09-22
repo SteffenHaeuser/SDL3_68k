@@ -5,6 +5,9 @@
 #include "SDL_os3events.h"
 #include "SDL_os3keyboard.h"
 #include "SDL_os3mouse.h"
+#if defined(SDL_VIDEO_OPENGL)
+#include "SDL_os3opengl.h"
+#endif
 
 #include "../../events/SDL_keyboard_c.h"
 #include "../../events/SDL_mouse_c.h"
@@ -18,7 +21,7 @@ void OS3_PumpEvents(SDL_VideoDevice *_this)
         SDL_WindowData *d = sw->internal;
         struct IntuiMessage *m;
 
-        if (!d || !d->syswin || !d->syswin->UserPort) {
+        if (!d || !d->syswin || !d->syswin->UserPort || d->external_window) {
             continue;
         }
 
@@ -73,6 +76,9 @@ void OS3_PumpEvents(SDL_VideoDevice *_this)
                 break;
 
             case IDCMP_NEWSIZE:
+#if defined(SDL_VIDEO_OPENGL)
+                OS3_GL_ResizeWindow(_this, sw, inner_w, inner_h);
+#endif
                 SDL_SendWindowEvent(sw, SDL_EVENT_WINDOW_RESIZED, inner_w, inner_h);
                 break;
 

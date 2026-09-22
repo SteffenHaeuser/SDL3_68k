@@ -116,6 +116,7 @@ static SDL_VideoDevice *OS3_CreateDevice(void)
     device->SetWindowTitle=OS3_SetWindowTitle;
     device->SetWindowPosition=OS3_SetWindowPosition;
     device->SetWindowSize=OS3_SetWindowSize;
+    device->GetWindowSizeInPixels=OS3_GetWindowSizeInPixels;
     device->SetWindowMinimumSize=OS3_SetWindowMinMaxSize;
     device->SetWindowMaximumSize=OS3_SetWindowMinMaxSize;
     device->GetWindowBordersSize=OS3_GetWindowBordersSize;

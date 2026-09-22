@@ -40,7 +40,8 @@ struct SDL_WindowData {
     struct Window *syswin;
     struct Screen *screen;
     bool owns_screen;
-    bool minigl_owns_window;
+    bool external_window; /* native window and screen are borrowed */
+    int gl_width, gl_height;
     SDL_GLContext gl_context;
     void *fb_pixels;
     int fb_pitch;

@@ -1435,6 +1435,11 @@ extern SDL_DECLSPEC SDL_Window * SDLCALL SDL_CreateWindowWithProperties(SDL_Prop
 #define SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER                        "SDL.window.create.width"
 #define SDL_PROP_WINDOW_CREATE_X_NUMBER                            "SDL.window.create.x"
 #define SDL_PROP_WINDOW_CREATE_Y_NUMBER                            "SDL.window.create.y"
+/** AmigaOS3: live struct Window * to borrow for an OpenGL SDL window.
+ * Use with SDL_PROP_WINDOW_CREATE_OPENGL_BOOLEAN. The application retains
+ * ownership of the native window, screen and IDCMP event processing.
+ */
+#define SDL_PROP_WINDOW_CREATE_AMIGAOS3_WINDOW_POINTER "SDL.window.create.amigaos3.window"
 #define SDL_PROP_WINDOW_CREATE_COCOA_WINDOW_POINTER                "SDL.window.create.cocoa.window"
 #define SDL_PROP_WINDOW_CREATE_COCOA_VIEW_POINTER                  "SDL.window.create.cocoa.view"
 #define SDL_PROP_WINDOW_CREATE_WINDOWSCENE_POINTER                 "SDL.window.create.uikit.windowscene"
