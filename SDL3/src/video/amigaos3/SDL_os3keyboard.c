@@ -39,6 +39,7 @@ int OS3_TranslateRawKey(UWORD code, UWORD qualifier, APTR iaddress, char *utf8, 
     struct InputEvent ie;
     unsigned char local[16];
     LONG result;
+    int i;
 
     if (!KeymapBase || (code & OS3_KEY_UP)) {
         return 0;
@@ -56,6 +57,16 @@ int OS3_TranslateRawKey(UWORD code, UWORD qualifier, APTR iaddress, char *utf8, 
     }
     if (result > (LONG)sizeof(local)) {
         result = sizeof(local);
+    }
+
+    /* MapRawKey also returns terminal control sequences (notably CSI +
+       A/B/C/D for cursor keys). They belong to SDL keyboard events, not
+       SDL_EVENT_TEXT_INPUT. Reject the entire result so sequence suffixes
+       cannot turn into visible text. Preserve printable Latin-1/dead keys. */
+    for (i = 0; i < (int)result; ++i) {
+        if (local[i] < 0x20 || (local[i] >= 0x7f && local[i] < 0xa0)) {
+            return 0;
+        }
     }
 
     return OS3_Latin1ToUTF8(local, (int)result, utf8, utf8_size);

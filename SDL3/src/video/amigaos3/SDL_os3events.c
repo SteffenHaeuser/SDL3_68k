@@ -58,6 +58,14 @@ void OS3_PumpEvents(SDL_VideoDevice *_this)
                 break;
 
             case IDCMP_MOUSEBUTTONS:
+                /* A click may arrive without a preceding MOUSEMOVE. Update
+                   SDL's client-relative position before dispatching the button.
+                   In delta mode MouseX/Y are not absolute coordinates. */
+                if (!SDL_GetRelativeMouseMode()) {
+                    OS3_HandleMouseMotion(sw,
+                        mx - d->syswin->BorderLeft,
+                        my - d->syswin->BorderTop);
+                }
                 OS3_HandleMouseButton(sw, code);
                 break;
 
@@ -106,6 +114,17 @@ void OS3_PumpEvents(SDL_VideoDevice *_this)
             default:
                 break;
             }
+        }
+
+        /* Some native/GL window paths do not deliver IDCMP_MOUSEMOVE reliably.
+           Intuition still maintains the window-relative pointer position.
+           SDL suppresses unchanged positions. Never feed absolute coordinates
+           into relative mode, or poll inactive windows and steal mouse focus. */
+        if (!SDL_GetRelativeMouseMode() &&
+            (d->syswin->Flags & WFLG_WINDOWACTIVE)) {
+            SDL_SendMouseMotion(0, sw, SDL_DEFAULT_MOUSE_ID, false,
+                (float)(d->syswin->MouseX - d->syswin->BorderLeft),
+                (float)(d->syswin->MouseY - d->syswin->BorderTop));
         }
     }
 }

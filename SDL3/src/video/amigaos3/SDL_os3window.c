@@ -4,6 +4,9 @@
 
 #include "SDL_os3window.h"
 #include "SDL_os3modes.h"
+#include <utility/tagitem.h>
+#include <exec/tasks.h>
+#include <exec/memory.h>
 #if !defined(SDL_AMIGAOS3_SW_ONLY)
 #include "SDL_os3opengl.h"
 #endif
@@ -28,28 +31,33 @@ static struct Window *OS3_OpenSystemWindow(SDL_VideoDevice *_this,
                                            bool fullscreen)
 {
     struct Window *w;
+    int requested_w = window->w, requested_h = window->h;
 
+    if (!IntuitionBase) {
+        SDL_SetError("AmigaOS3: intuition.library is not open during window creation");
+        return NULL;
+    }
     if (!screen) {
         SDL_SetError("AmigaOS3: no screen available");
         return NULL;
     }
 
     if (fullscreen) {
-        w = OpenWindowTags(NULL,
-            WA_CustomScreen, screen,
-            WA_Left, 0,
-            WA_Top, 0,
-            WA_Width, screen->Width,
-            WA_Height, screen->Height,
-            WA_Title, window->title ? window->title : "SDL3",
-            WA_IDCMP, OS3_IDCMP_FULLSCREEN,
-            WA_Borderless, TRUE,
-            WA_Backdrop, TRUE,
-            WA_Activate, TRUE,
-            WA_RMBTrap, TRUE,
-            WA_ReportMouse, TRUE,
-            WA_SimpleRefresh, TRUE,
-            TAG_DONE);
+        requested_w = screen->Width;
+        requested_h = screen->Height;
+        const struct TagItem tags[] = {
+            { WA_CustomScreen, (ULONG)(uintptr_t)screen },
+            { WA_Left, 0 }, { WA_Top, 0 },
+            { WA_Width, (ULONG)screen->Width },
+            { WA_Height, (ULONG)screen->Height },
+            { WA_Title, (ULONG)(uintptr_t)(window->title ? window->title : "SDL3") },
+            { WA_IDCMP, OS3_IDCMP_FULLSCREEN },
+            { WA_Borderless, TRUE }, { WA_Backdrop, TRUE },
+            { WA_Activate, TRUE }, { WA_RMBTrap, TRUE },
+            { WA_ReportMouse, TRUE }, { WA_SimpleRefresh, TRUE },
+            { TAG_DONE, 0 }
+        };
+        w = OpenWindowTagList(NULL, tags);
     } else {
         SDL_VideoData *vd = (SDL_VideoData *)_this->internal;
         int inner_w = window->windowed.w > 0 ? window->windowed.w : window->w;
@@ -79,25 +87,46 @@ static struct Window *OS3_OpenSystemWindow(SDL_VideoDevice *_this,
         if (left < 0 || left + inner_w > (int)screen->Width) left = 0;
         if (top < 0 || top + inner_h > (int)screen->Height) top = 0;
 
-        w = OpenWindowTags(NULL,
-            WA_CustomScreen, screen,
-            WA_Left, left, WA_Top, top,
-            WA_InnerWidth, inner_w, WA_InnerHeight, inner_h,
-            WA_Title, window->title ? window->title : "SDL3",
-            WA_IDCMP, OS3_IDCMP_WINDOWED,
-            WA_Borderless, (window->flags & SDL_WINDOW_BORDERLESS) ? TRUE : FALSE,
-            WA_CloseGadget, (window->flags & SDL_WINDOW_BORDERLESS) ? FALSE : TRUE,
-            WA_DepthGadget, (window->flags & SDL_WINDOW_BORDERLESS) ? FALSE : TRUE,
-            WA_DragBar, (window->flags & SDL_WINDOW_BORDERLESS) ? FALSE : TRUE,
-            WA_SizeGadget, ((window->flags & SDL_WINDOW_RESIZABLE) &&
-                            !(window->flags & SDL_WINDOW_BORDERLESS)) ? TRUE : FALSE,
-            WA_Activate, TRUE,
-            WA_ReportMouse, TRUE,
-            WA_SimpleRefresh, TRUE,
-            WA_AutoAdjust, TRUE,
-            TAG_DONE);
+        requested_w = inner_w;
+        requested_h = inner_h;
+        /* This is a visitor on the locked public screen, not a private
+         * custom-screen window. Explicit tags avoid the varargs wrapper. */
+        const struct TagItem tags[] = {
+            { WA_PubScreen, (ULONG)(uintptr_t)screen },
+            { WA_Left, (ULONG)left }, { WA_Top, (ULONG)top },
+            { WA_InnerWidth, (ULONG)inner_w }, { WA_InnerHeight, (ULONG)inner_h },
+            { WA_Title, (ULONG)(uintptr_t)(window->title ? window->title : "SDL3") },
+            { WA_IDCMP, OS3_IDCMP_WINDOWED },
+            { WA_Borderless, (window->flags & SDL_WINDOW_BORDERLESS) ? TRUE : FALSE },
+            { WA_CloseGadget, (window->flags & SDL_WINDOW_BORDERLESS) ? FALSE : TRUE },
+            { WA_DepthGadget, (window->flags & SDL_WINDOW_BORDERLESS) ? FALSE : TRUE },
+            { WA_DragBar, (window->flags & SDL_WINDOW_BORDERLESS) ? FALSE : TRUE },
+            { WA_SizeGadget, ((window->flags & SDL_WINDOW_RESIZABLE) &&
+                              !(window->flags & SDL_WINDOW_BORDERLESS)) ? TRUE : FALSE },
+            { WA_MinWidth, 64 }, { WA_MinHeight, 64 },
+            { WA_MaxWidth, (ULONG)-1 }, { WA_MaxHeight, (ULONG)-1 },
+            { WA_SizeBRight, TRUE },
+            { WA_Activate, TRUE }, { WA_ReportMouse, TRUE },
+            { WA_SimpleRefresh, TRUE }, { WA_AutoAdjust, TRUE },
+            { TAG_DONE, 0 }
+        };
+        w = OpenWindowTagList(NULL, tags);
     }
 
+    if (!w) {
+        struct Task *task = FindTask(NULL);
+        /* Intuition returns NULL without a detailed reason. Record resources
+         * as well as geometry: creating an IDCMP port needs a task signal. */
+        SDL_SetError("AmigaOS3: OpenWindowTagList returned NULL "
+                     "(mode=%s, size=%dx%d, screen=%dx%d, flags=0x%lx, "
+                     "sigalloc=0x%lx, publicmem=%lu, largest=%lu)",
+                     fullscreen ? "fullscreen" : "windowed",
+                     requested_w, requested_h, (int)screen->Width,
+                     (int)screen->Height, (unsigned long)window->flags,
+                     task ? (unsigned long)task->tc_SigAlloc : 0UL,
+                     (unsigned long)AvailMem(MEMF_PUBLIC),
+                     (unsigned long)AvailMem(MEMF_PUBLIC | MEMF_LARGEST));
+    }
     return w;
 }
 
