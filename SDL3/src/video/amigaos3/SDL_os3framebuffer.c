@@ -1,7 +1,7 @@
 #include "SDL_internal.h"
 #if SDL_VIDEO_DRIVER_AMIGAOS3
 #include "SDL_os3framebuffer.h"
-bool OS3_CreateWindowFramebuffer(SDL_VideoDevice *_this, SDL_Window *window, Uint32 *format, void **pixels, int *pitch)
+bool OS3_CreateWindowFramebuffer(SDL_VideoDevice *_this, SDL_Window *window, SDL_PixelFormat *format, void **pixels, int *pitch)
 {
     SDL_WindowData*d=window->internal;(void)_this;if(!d||!d->syswin)return SDL_SetError("AmigaOS3: no native window");
     if(d->fb_pixels) SDL_free(d->fb_pixels); d->fb_format=SDL_PIXELFORMAT_ARGB8888; d->fb_pitch=window->w*4;

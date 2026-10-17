@@ -105,6 +105,13 @@ static int SDLCALL SDL_TimerThread(void *_data)
     SDL_Timer *freelist_head = NULL;
     SDL_Timer *freelist_tail = NULL;
     Uint64 tick, now, interval, delay;
+    /* A clock read can be expensive (on AmigaOS 3 it is timer.device's E
+     * clock, a CIA read over the chip bus: about 16 us on a PiStorm), and a
+     * one-shot timer armed again from its own callback cost five a fire.  A
+     * pass straight after the last one (the semaphore was already up) takes
+     * the last reading as its tick, and a pass that ran no callback ends on
+     * its tick: three reads a fire. */
+    bool known = false;
 
     /* Threaded timer loop:
      *  1. Queue timers added by other threads
@@ -144,7 +151,9 @@ static int SDLCALL SDL_TimerThread(void *_data)
         // Initial delay if there are no timers
         delay = (Uint64)-1;
 
-        tick = SDL_GetTicksNS();
+        tick = known ? now : SDL_GetTicksNS();
+        known = false;
+        bool ran = false;
 
         // Process all the pending timers for this tick
         while (data->timers) {
@@ -162,6 +171,7 @@ static int SDLCALL SDL_TimerThread(void *_data)
             if (SDL_GetAtomicInt(&current->canceled)) {
                 interval = 0;
             } else {
+                ran = true;
                 if (current->callback_ms) {
                     interval = SDL_MS_TO_NS(current->callback_ms(current->userdata, current->timerID, (Uint32)SDL_NS_TO_MS(current->interval)));
                 } else {
@@ -188,7 +198,7 @@ static int SDLCALL SDL_TimerThread(void *_data)
         }
 
         // Adjust the delay based on processing time
-        now = SDL_GetTicksNS();
+        now = ran ? SDL_GetTicksNS() : tick;
         interval = (now - tick);
         if (interval > delay) {
             delay = 0;
@@ -201,7 +211,11 @@ static int SDLCALL SDL_TimerThread(void *_data)
            That's okay, it just means we run through the loop a few
            extra times.
          */
-        SDL_WaitSemaphoreTimeoutNS(data->sem, delay);
+        if (SDL_TryWaitSemaphore(data->sem)) {
+            known = true;
+        } else {
+            SDL_WaitSemaphoreTimeoutNS(data->sem, delay);
+        }
     }
     return 0;
 }
@@ -637,6 +651,28 @@ void SDL_QuitTicks(void)
     tick_start = 0;
 }
 
+#if defined(SDL_PLATFORM_AMIGAOS3) && defined(__HAVE_68881__) && !defined(USE_128BIT_MATH)
+/* AmigaOS 3 with an FPU: the counter scaled in double precision instead of
+ * the 64-bit divisions above (__udivdi3/__umoddi3, a tenth of a frame in a
+ * game on a 68040/68060, which has no 64-bit divide).  A double holds the
+ * counter exactly for centuries and the product is monotonic.  Uint64 and
+ * double convert through two 32-bit halves: a plain cast is a libgcc routine
+ * too (__floatundidf, __fixunsdfdi). */
+#define SDL_TICKS_ON_FPU 1
+static SDL_INLINE double SDL_U64ToDouble(Uint64 v)
+{
+    const Uint32 hi = (Uint32)(v >> 32), lo = (Uint32)v;
+    return (double)(Sint32)hi * 4294967296.0 + ((double)(Sint32)(lo ^ 0x80000000u) + 2147483648.0);
+}
+static SDL_INLINE Uint64 SDL_DoubleToU64(double d)  // 0 <= d < 2^63
+{
+    const Sint32 hi = (Sint32)(d * (1.0 / 4294967296.0));
+    const double rest = d - (double)hi * 4294967296.0;  // [0, 2^32)
+    const Uint32 lo = rest >= 2147483648.0 ? ((Uint32)(Sint32)(rest - 2147483648.0) ^ 0x80000000u) : (Uint32)(Sint32)rest;
+    return ((Uint64)(Uint32)hi << 32) | lo;
+}
+#endif
+
 Uint64 SDL_GetTicksNS(void)
 {
     Uint64 starting_value, value;
@@ -646,6 +682,9 @@ Uint64 SDL_GetTicksNS(void)
     }
 
     starting_value = (SDL_GetPerformanceCounter() - tick_start);
+#ifdef SDL_TICKS_ON_FPU
+    return SDL_DoubleToU64(SDL_U64ToDouble(starting_value) * (SDL_U64ToDouble(tick_numerator_ns) / SDL_U64ToDouble(tick_denominator_ns)));
+#endif
 #ifdef USE_128BIT_MATH
     value = (Uint64)(((Uint128)starting_value * tick_numerator_ns) >> 32);
 #else
@@ -664,6 +703,9 @@ Uint64 SDL_GetTicks(void)
     }
 
     starting_value = (SDL_GetPerformanceCounter() - tick_start);
+#ifdef SDL_TICKS_ON_FPU
+    return SDL_DoubleToU64(SDL_U64ToDouble(starting_value) * (SDL_U64ToDouble(tick_numerator_ms) / SDL_U64ToDouble(tick_denominator_ms)));
+#endif
 #ifdef USE_128BIT_MATH
     value = (Uint64)(((Uint128)starting_value * tick_numerator_ms) >> 32);
 #else
