@@ -19,6 +19,7 @@
   3. This notice may not be removed or altered from any source distribution.
 */
 #include "SDL_internal.h"
+#include <stdlib.h>
 
 #if defined(SDL_PLATFORM_WINDOWS)
 #include "core/windows/SDL_windows.h"

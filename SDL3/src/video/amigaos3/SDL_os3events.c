@@ -1,4 +1,5 @@
 #include "SDL_internal.h"
+#include "../../events/SDL_windowevents_c.h"
 
 #if SDL_VIDEO_DRIVER_AMIGAOS3
 
