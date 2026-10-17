@@ -73,55 +73,94 @@ static bool OS3_RemoveWaiter(SDL_Semaphore *sem, OS3_SemWaiter *target)
     return found;
 }
 
-static bool OS3_TimerWait(ULONG sem_mask, Sint64 timeoutNS, bool *sem_signalled)
-{
+/* Every timed wait used to create a message port and an I/O request and
+ * open timer.device, then close it all again: hundreds of times a second in
+ * a game (SDL's timer thread on every tick, delays, condition waits), with
+ * 64-bit divisions on a CPU without them.  Each thread keeps one open
+ * request now, in its TLS, closed when the thread ends. */
+typedef struct OS3_TimerCache {
     struct MsgPort *port;
     struct timerequest *tr;
-    ULONG wait_mask;
+} OS3_TimerCache;
+static SDL_TLSID OS3_timer_tls;
+
+static void SDLCALL OS3_FreeTimerCache(void *value)
+{
+    OS3_TimerCache *cache = (OS3_TimerCache *)value;
+    if (!cache) {
+        return;
+    }
+    CloseDevice((struct IORequest *)cache->tr);
+    DeleteIORequest((struct IORequest *)cache->tr);
+    DeleteMsgPort(cache->port);
+    SDL_free(cache);
+}
+
+static OS3_TimerCache *OS3_GetTimerCache(void)
+{
+    OS3_TimerCache *cache = (OS3_TimerCache *)SDL_GetTLS(&OS3_timer_tls);
+    if (cache) {
+        return cache;
+    }
+    cache = (OS3_TimerCache *)SDL_calloc(1, sizeof(*cache));
+    if (!cache) {
+        return NULL;
+    }
+    cache->port = CreateMsgPort();
+    cache->tr = cache->port ? (struct timerequest *)CreateIORequest(cache->port, sizeof(*cache->tr)) : NULL;
+    if (!cache->tr || OpenDevice(TIMERNAME, UNIT_MICROHZ, (struct IORequest *)cache->tr, 0) != 0) {
+        if (cache->tr) {
+            DeleteIORequest((struct IORequest *)cache->tr);
+        }
+        if (cache->port) {
+            DeleteMsgPort(cache->port);
+        }
+        SDL_free(cache);
+        SDL_SetError("timer.device for a timed wait failed");
+        return NULL;
+    }
+    SDL_SetTLS(&OS3_timer_tls, cache, OS3_FreeTimerCache);
+    return cache;
+}
+
+static bool OS3_TimerWait(ULONG sem_mask, Sint64 timeoutNS, bool *sem_signalled)
+{
+    OS3_TimerCache *cache = OS3_GetTimerCache();
+    struct timerequest *tr;
+    ULONG port_mask;
     ULONG got;
-    Uint64 usec;
 
     *sem_signalled = false;
-
-    port = CreateMsgPort();
-    if (!port) {
-        return SDL_SetError("CreateMsgPort(timer.device) failed");
+    if (!cache) {
+        return false;
     }
+    tr = cache->tr;
+    port_mask = 1UL << cache->port->mp_SigBit;
 
-    tr = (struct timerequest *)CreateIORequest(port, sizeof(*tr));
-    if (!tr) {
-        DeleteMsgPort(port);
-        return SDL_SetError("CreateIORequest(timer.device) failed");
+    /* Up to 4.29 s (nearly every wait) in 32-bit arithmetic. */
+    if (timeoutNS <= 0xffffffffLL) {
+        const ULONG ns = (ULONG)timeoutNS;
+        const ULONG usec = ns / 1000U + (ns % 1000U ? 1U : 0U);
+        tr->tr_time.tv_secs = usec / 1000000U;
+        tr->tr_time.tv_micro = usec % 1000000U;
+    } else {
+        const Uint64 usec = ((Uint64)timeoutNS + 999ULL) / 1000ULL;
+        tr->tr_time.tv_secs = (ULONG)(usec / 1000000ULL);
+        tr->tr_time.tv_micro = (ULONG)(usec % 1000000ULL);
     }
-
-    if (OpenDevice(TIMERNAME, UNIT_MICROHZ, (struct IORequest *)tr, 0) != 0) {
-        DeleteIORequest((struct IORequest *)tr);
-        DeleteMsgPort(port);
-        return SDL_SetError("OpenDevice(timer.device) failed");
-    }
-
-    usec = ((Uint64)timeoutNS + 999ULL) / 1000ULL;
     tr->tr_node.io_Command = TR_ADDREQUEST;
-    tr->tr_time.tv_secs = (ULONG)(usec / 1000000ULL);
-    tr->tr_time.tv_micro = (ULONG)(usec % 1000000ULL);
+    SetSignal(0, port_mask);  /* a reply from an earlier wait left the bit set */
     SendIO((struct IORequest *)tr);
 
-    wait_mask = sem_mask | (1UL << port->mp_SigBit);
-    got = Wait(wait_mask);
+    got = Wait(sem_mask | port_mask);
 
     if (got & sem_mask) {
         *sem_signalled = true;
-        if (!CheckIO((struct IORequest *)tr)) {
-            AbortIO((struct IORequest *)tr);
-        }
-        WaitIO((struct IORequest *)tr);
-    } else {
-        WaitIO((struct IORequest *)tr);
     }
-
-    CloseDevice((struct IORequest *)tr);
-    DeleteIORequest((struct IORequest *)tr);
-    DeleteMsgPort(port);
+    if (!CheckIO((struct IORequest *)tr)) {
+        AbortIO((struct IORequest *)tr);
+    }
+    WaitIO((struct IORequest *)tr);
     return true;
 }
 
